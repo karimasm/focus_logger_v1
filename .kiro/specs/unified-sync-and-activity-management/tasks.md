@@ -1,0 +1,345 @@
+# Implementation Plan: Awareness-Based Activity Management
+
+## Overview
+
+This implementation plan focuses on Android-only development with single-device mode. The implementation follows a bottom-up approach: data models → services → providers → UI integration. Cross-device sync is paused until core Android functionality is stable.
+
+## Tasks
+
+- [x] 1. Ghost Activity Cleanup Service
+  - [x] 1.1 Create GhostActivityCleanupService class
+    - Implement findGhostActivities() to find activities with is_running = 1 older than 24 hours
+    - Implement closeGhostActivity() to set end_time = start_time + 1 hour and is_running = 0
+    - Call sanitizeGhostActivities() on app start in main.dart
+    - _Requirements: 5.1, 5.2, 5.3_
+  - [ ]* 1.2 Write property test for ghost activity sanitization
+    - **Property 8: Ghost Activity Sanitization**
+    - **Validates: Requirements 5.1, 5.2, 5.3**
+
+- [ ] 2. Single-Activity Enforcement
+  - [x] 2.1 Update ActivityProvider.startActivity()
+    - Check for currently running activity before starting new one
+    - Call stopActivity() on previous activity if exists
+    - Set end_time = now and is_running = 0 immediately
+    - _Requirements: 2.1, 2.2_
+  - [x] 2.2 Update ActivityProvider.stopActivity()
+    - Set end_time = now immediately
+    - Set is_running = 0 immediately
+    - Save to SQLite immediately
+    - _Requirements: 4.1, 4.2_
+  - [ ]* 2.3 Write property test for single running activity
+    - **Property 4: Single Running Activity**
+    - **Validates: Requirements 2.1, 2.2, 2.4**
+  - [ ]* 2.4 Write property test for immediate activity closure
+    - **Property 5: Immediate Activity Closure**
+    - **Validates: Requirements 4.1, 4.2**
+
+- [x] 3. Checkpoint - Core activity lifecycle
+  - Run all tests, verify no ghost activities remain
+  - Verify single-activity enforcement works
+  - Ask the user if questions arise
+
+- [ ] 4. Mascot Asset System
+  - [x] 4.1 Create MascotService class
+    - Implement getMascotAsset(Activity) method
+    - Return capy_weight_lift for Deep Work / Workout
+    - Return weekend_duck_float for Break / Weekend / Rest
+    - Return capy_on_flying_duck for Travel / Commute
+    - Return potato_duck_prayer_break for Prayer flows
+    - Return null for activities without specific mascot
+    - _Requirements: Design - Mascot System_
+  - [-] 4.2 Update activity card to display mascot
+    - Add mascot image widget to activity card
+    - Position mascot appropriately in card layout
+    - Handle null mascot (no image shown)
+    - _Requirements: Design - Mascot System_
+
+- [x] 5. Idle Reflection System
+  - [x] 5.1 Create IdleReflectionProvider
+    - Add idleThreshold property (default 30 minutes, configurable for testing)
+    - Implement startIdleTimer() called when no activity running
+    - Implement resetIdleTimer() called when activity starts
+    - Implement shouldShowIdlePrompt getter
+    - _Requirements: 6.1, 6.8_
+  - [x] 5.2 Create fullscreen idle reflection screen
+    - Create idle_reflection_screen.dart as fullscreen widget
+    - Display shy_duck_idle.png asset prominently
+    - Show "Kamu tadi ngapain?" text
+    - Add text input field for reflection
+    - Add voice input button (Android)
+    - Add Submit and Skip buttons
+    - _Requirements: 6.2, 6.3, 6.4, 6.5_
+  - [x] 5.3 Implement idle reflection submission
+    - On submit, create memo with reflection content
+    - Attach memo to special "Idle Time" activity or create one
+    - On skip, record that idle time occurred (no memo)
+    - _Requirements: 6.6, 6.7_
+  - [ ]* 5.4 Write property test for idle prompt timing
+    - **Property 9: Idle Prompt After Threshold**
+    - **Validates: Requirements 6.1**
+  - [ ]* 5.5 Write property test for idle reflection creates memo
+    - **Property 10: Idle Reflection Creates Memo**
+    - **Validates: Requirements 6.6**
+
+- [x] 6. Distraction Reflection System
+  - [x] 6.1 Create distraction reflection dialog
+    - Create distraction_reflection_dialog.dart
+    - Display angry_duck_knife.png asset
+    - Show "Kenapa pause?" text
+    - Add text input field for reason
+    - Add voice input button (Android)
+    - Add Save & Pause and Cancel buttons
+    - _Requirements: 7.1, 7.2, 7.3_
+  - [x] 6.2 Update ActivityProvider.pauseActivity()
+    - Show distraction reflection dialog before pausing
+    - Store pause_reason with activity
+    - Optionally create memo with reflection
+    - Track paused_at timestamp
+    - _Requirements: 7.4, 7.5_
+  - [ ] 6.3 Update ActivityProvider.resumeActivity()
+    - Calculate paused duration accurately
+    - Update pausedDurationSeconds
+    - Clear pausedAt
+    - _Requirements: 7.6_
+  - [ ]* 6.4 Write property test for pause shows distraction prompt
+    - **Property 11: Pause Shows Distraction Prompt**
+    - **Validates: Requirements 7.1, 7.2**
+  - [ ]* 6.5 Write property test for pause reason stored
+    - **Property 12: Pause Reason Stored**
+    - **Validates: Requirements 7.4**
+
+- [ ] 7. Checkpoint - Reflection systems
+  - Test idle reflection appears after 30 minutes (use short interval)
+  - Test distraction reflection appears on pause
+  - Verify memos are created correctly
+  - Ask the user if questions arise
+
+- [x] 8. Memo Collection System
+  - [x] 8.1 Create MemoProvider
+    - Implement createMemo(content, activityId)
+    - Implement getAllMemos() for Memo tab
+    - Implement searchMemos(query)
+    - Implement getMemosForActivity(activityId)
+    - Implement getActivityForMemo(memoId)
+    - _Requirements: 10.1, 10.3, 10.4, 10.5, 10.7_
+  - [x] 8.2 Create Memo tab in timeline screen
+    - Add TabBar with Timeline and Memo tabs
+    - Create memo list view showing all memos chronologically
+    - Display activity context for each memo
+    - Add search functionality
+    - Implement tap to navigate to activity
+    - _Requirements: 10.2, 10.3, 10.4, 10.5, 10.6_
+  - [ ]* 8.3 Write property test for memo always attached
+    - **Property 17: Memo Always Attached**
+    - **Validates: Requirements 10.1**
+  - [ ]* 8.4 Write property test for memo tab shows all memos
+    - **Property 18: Memo Tab Shows All Memos**
+    - **Validates: Requirements 10.3**
+  - [ ]* 8.5 Write property test for memo search
+    - **Property 19: Memo Search Works**
+    - **Validates: Requirements 10.4**
+
+- [x] 9. Timeline Search and Display
+  - [x] 9.1 Add search to timeline screen
+    - Add search bar at top of timeline
+    - Implement searchActivities(query) in ActivityProvider
+    - Filter by name, category, or date
+    - _Requirements: 11.2, 11.3_
+  - [x] 9.2 Ensure timeline display integrity
+    - Sort activities by start_time chronologically
+    - Calculate durations correctly (end_time - start_time - paused_duration_seconds)
+    - Format durations as hours:minutes
+    - Never show negative durations
+    - Never show overlapping activities
+    - _Requirements: 11.1, 11.4, 11.5, 11.6_
+  - [ ] 9.3 Ensure timeline completeness
+    - Verify all activities in database appear in timeline
+    - Timeline must never be empty if activities exist
+    - _Requirements: 1.5, 11.7_
+  - [ ]* 9.4 Write property test for chronological order
+    - **Property 20: Chronological Timeline Order**
+    - **Validates: Requirements 11.1**
+  - [ ]* 9.5 Write property test for timeline search
+    - **Property 21: Timeline Search Works**
+    - **Validates: Requirements 11.2, 11.3**
+  - [ ]* 9.6 Write property test for no overlapping activities
+    - **Property 22: No Overlapping Activities**
+    - **Validates: Requirements 11.4**
+  - [ ]* 9.7 Write property test for non-negative durations
+    - **Property 6: Non-Negative Durations**
+    - **Validates: Requirements 4.3**
+
+- [x] 10. Responsive Activity Card Layout
+  - [x] 10.1 Fix activity card counter layout
+    - Use FittedBox for counter text to scale on small screens
+    - Ensure counter/seconds stays on one line
+    - Use consistent formatting across device sizes
+    - _Requirements: 12.1, 12.5_
+  - [ ] 10.2 Handle long activity names
+    - Truncate with ellipsis rather than breaking layout
+    - Set maxLines and overflow properties
+    - _Requirements: 12.4_
+  - [ ] 10.3 Test on multiple screen sizes
+    - Test on small phone (320dp width)
+    - Test on large phone (412dp width)
+    - Verify no layout breaks
+    - _Requirements: 12.2, 12.3_
+  - [ ]* 10.4 Write property test for counter stays on one line
+    - **Property 23: Counter Stays On One Line**
+    - **Validates: Requirements 12.1**
+
+- [ ] 11. Checkpoint - UI systems
+  - Test memo tab displays all memos
+  - Test timeline search works
+  - Test activity card layout on different devices
+  - Ask the user if questions arise
+
+- [ ] 12. Enforced Flow System
+  - [ ] 12.1 Update GuidedFlowProvider for enforced flows
+    - Implement showEnforcedFlowPrompt() that cannot be dismissed
+    - Implement acknowledgeFlow() for ON IT press
+    - Implement completeFlow() for DONE press
+    - Block pause/snooze during active flow window
+    - _Requirements: 8.1, 8.7_
+  - [ ] 12.2 Implement flow alarm service
+    - Play alert sound on flow window start
+    - Trigger vibration on flow window start
+    - Repeat alert every 2 minutes until ON IT pressed
+    - Stop alerts when ON IT pressed
+    - Work in background using Android notifications
+    - _Requirements: 8.2, 8.3, 8.4, 8.5, 8.6_
+  - [ ] 12.3 Implement flow completion logic
+    - Check ON IT was pressed for completion
+    - Check DONE was pressed after all steps
+    - Mark as missed if window passes without ON IT
+    - Mark as abandoned if started but not finished
+    - _Requirements: 9.1, 9.2, 9.3, 9.4_
+  - [ ] 12.4 Implement late-open flow support
+    - Check for active flow windows on app resume
+    - Show enforced prompt if flow not completed
+    - _Requirements: 8.8_
+  - [ ]* 12.5 Write property test for flow cannot be dodged
+    - **Property 13: Flow Cannot Be Dodged**
+    - **Validates: Requirements 8.7**
+  - [ ]* 12.6 Write property test for flow alarm repeats
+    - **Property 14: Flow Alarm Repeats**
+    - **Validates: Requirements 8.4**
+  - [ ]* 12.7 Write property test for flow completion
+    - **Property 15: Flow Completed Requires ON IT and DONE**
+    - **Validates: Requirements 9.1, 9.2**
+  - [ ]* 12.8 Write property test for flow missed
+    - **Property 16: Flow Missed Without ON IT**
+    - **Validates: Requirements 9.3**
+
+- [ ] 13. Haid Mode System
+  - [ ] 13.1 Update HaidMode model for local persistence
+    - Ensure haid_mode_active, haid_mode_updated_at, haid_cycle_start_at fields
+    - Implement toMap() and fromMap() for SQLite
+    - _Requirements: 13.3, 13.4, 13.5_
+  - [ ] 13.2 Update HaidModeService for local persistence
+    - Save to SQLite on enable/disable
+    - Load from SQLite on app start
+    - _Requirements: 13.1, 13.2_
+  - [ ] 13.3 Implement Haid Mode flow behavior
+    - Show "Apakah kamu masih haid?" prompt on prayer flow
+    - Skip flow on "Masih haid" response
+    - Disable Haid Mode on "Sudah selesai" response
+    - Set status = skipped_due_to_haid for skipped flows
+    - _Requirements: 14.1, 14.2, 14.3, 14.4, 14.5_
+  - [ ] 13.4 Implement Haid Mode periodic prompt
+    - Check if active for 5-7 days
+    - Prompt user to confirm status
+    - _Requirements: 14.6_
+  - [ ] 13.5 Block prayer/Qur'an flows during Haid Mode
+    - Check Haid Mode before enforcing prayer flows
+    - Skip enforcement if active
+    - _Requirements: 14.7_
+  - [ ]* 13.6 Write property test for Haid Mode persistence
+    - **Property 24: Haid Mode Persistence**
+    - **Validates: Requirements 13.1, 13.2**
+  - [ ]* 13.7 Write property test for flow skipped during Haid Mode
+    - **Property 25: Flow Skipped During Haid Mode**
+    - **Validates: Requirements 14.3**
+  - [ ]* 13.8 Write property test for Haid Mode prompt timing
+    - **Property 26: Haid Mode Prompt After 5-7 Days**
+    - **Validates: Requirements 14.6**
+
+- [ ] 14. Ad-Hoc Task Integration
+  - [ ] 14.1 Update TaskProvider for activity integration
+    - Call ActivityProvider.pauseForAdHoc() when ad-hoc starts
+    - Set pause_reason = "Doing Ad-Hoc – <task title>"
+    - _Requirements: 3.1, 3.2_
+  - [ ] 14.2 Create ad-hoc completion dialog
+    - Show "Continue previous activity?" prompt
+    - Add "ON IT" button to resume activity
+    - Add "Stay Paused" button requiring pause reason
+    - _Requirements: 3.3, 3.4, 3.5_
+  - [ ] 14.3 Implement resume after ad-hoc
+    - Resume previously paused activity on "ON IT"
+    - Keep paused and require reason on "Stay Paused"
+    - _Requirements: 3.4, 3.5_
+
+- [ ] 15. Voice Input (Android)
+  - [ ] 15.1 Ensure VoiceInputService works on Android
+    - Check microphone permission
+    - Implement listen() method
+    - Handle errors gracefully
+    - _Requirements: 15.1, 15.5_
+  - [ ] 15.2 Add voice input to all reflection prompts
+    - Add microphone button to idle reflection screen
+    - Add microphone button to distraction reflection dialog
+    - Add microphone button to memo entry
+    - _Requirements: 15.2, 15.3, 15.4_
+
+- [ ] 16. Data Persistence Verification
+  - [ ] 16.1 Verify activity persistence
+    - Test activity saves to SQLite immediately on start
+    - Test activity updates on stop
+    - Test activities load on app restart
+    - _Requirements: 1.1, 1.2, 1.4_
+  - [ ] 16.2 Verify memo persistence
+    - Test memo saves to SQLite immediately
+    - Test memos load on app restart
+    - _Requirements: 1.3, 1.4_
+  - [ ] 16.3 Verify timeline completeness
+    - Test timeline shows all activities
+    - Test timeline never empty if activities exist
+    - _Requirements: 1.5, 11.7_
+  - [ ]* 16.4 Write property test for activity persistence
+    - **Property 1: Activity Persistence**
+    - **Validates: Requirements 1.1, 1.4**
+  - [ ]* 16.5 Write property test for memo persistence
+    - **Property 2: Memo Persistence**
+    - **Validates: Requirements 1.3, 1.4**
+  - [ ]* 16.6 Write property test for timeline non-empty
+    - **Property 3: Timeline Non-Empty**
+    - **Validates: Requirements 1.5, 11.7**
+
+- [ ] 17. Final Checkpoint - Full integration
+  - Run full test suite
+  - Test complete user flow:
+    - Start activity → mascot appears
+    - Pause → distraction prompt → memo created
+    - Stop → timeline updated
+    - Idle 30 min → fullscreen prompt → memo created
+    - Flow window → alarm → ON IT → DONE → completed
+    - Haid Mode → prayer flow skipped
+  - Verify no regressions
+  - Ask the user if questions arise
+
+- [ ] 18. Database Migration (if needed)
+  - [ ] 18.1 Clean up old database structure
+    - Remove deprecated tables/columns
+    - Migrate valid data to new structure
+    - Discard corrupted records
+    - _Requirements: 5.4, 5.5_
+
+## Notes
+
+- Tasks marked with `*` are optional property tests and can be skipped for faster MVP
+- Each task references specific requirements for traceability
+- Checkpoints ensure incremental validation
+- Property tests validate universal correctness properties
+- Unit tests validate specific examples and edge cases
+- Focus is Android only - Web & Linux paused until core is stable
+- Cross-device sync is paused - single device mode only

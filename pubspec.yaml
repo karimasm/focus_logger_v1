@@ -1,0 +1,63 @@
+name: focus_logger
+description: Flow — Focus & Immersion Tracker for ADHD awareness.
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # State Management
+  provider: ^6.1.1
+  
+  # Local Database
+  sqflite: ^2.3.0
+  sqflite_common_ffi: ^2.3.0+4
+  path: ^1.8.3
+  path_provider: ^2.1.1
+  
+  # Voice to Text
+  speech_to_text: ^7.0.0
+  permission_handler: ^11.1.0
+  
+  # Time & Date
+  intl: ^0.18.1
+  
+  # UI
+  cupertino_icons: ^1.0.6
+  
+  # Sync & Backend
+  supabase_flutter: ^2.12.0
+  uuid: ^4.5.2
+  connectivity_plus: ^7.0.0
+  shared_preferences: ^2.5.4
+  
+  # Notifications & Alarms (for enforced flow alerts)
+  flutter_local_notifications: ^18.0.1
+  audioplayers: ^6.1.0
+  vibration: ^2.0.1
+  flutter_dotenv: ^6.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+  flutter_launcher_icons: ^0.14.1
+
+flutter_launcher_icons:
+  android: true
+  image_path: "assets/mascots/Elmo_chill_dwag.jpg"
+  min_sdk_android: 21
+
+flutter:
+  uses-material-design: true
+  
+  assets:
+    - assets/sounds/
+    - assets/images/
+    - assets/mascots/
+    - .env

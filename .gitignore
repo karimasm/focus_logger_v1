@@ -1,0 +1,54 @@
+# Flutter/Dart
+.dart_tool/
+.packages
+build/
+*.iml
+.idea/
+.vscode/
+*.log
+
+# Flutter web chrome device cache
+.dart_tool/chrome-device/
+
+# Local database
+/focus_logger.db
+*.db
+*.db-journal
+
+# macOS
+.DS_Store
+
+# Android
+android/.gradle/
+android/local.properties
+android/app/debug/
+android/app/profile/
+android/app/release/
+
+# iOS
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/.last_build_id
+
+# Linux
+linux/flutter/ephemeral/
+
+# Build artifacts
+*.class
+*.jar
+*.pyc
+
+# Generated files
+*.g.dart
+*.freezed.dart
+
+# Coverage
+coverage/
+
+# Pub
+.pub-cache/
+.pub/
+pubspec.lock
+# Local Netlify folder
+.netlify
+.env
