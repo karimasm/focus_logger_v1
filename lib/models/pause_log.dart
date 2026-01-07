@@ -1,4 +1,3 @@
-import 'package:uuid/uuid.dart';
 import 'sync_model.dart';
 
 /// Represents a pause event during an activity

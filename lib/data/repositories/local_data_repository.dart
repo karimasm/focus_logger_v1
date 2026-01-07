@@ -188,43 +188,35 @@ class LocalDataRepository implements DataRepository {
       _db.getGuidedFlowLastCompleted(flowId);
 
   // ==================== GUIDED FLOWS (Database-driven) ====================
-  // For local repository, we still use hardcoded flows for now
-  // Full database implementation would require SQLite tables
+  // GuidedFlow methods - not used, kept for interface compliance
+  // App now uses UserFlowTemplate system via FlowSeederService
   
   @override
   Future<List<GuidedFlow>> getAllGuidedFlows() async {
-    // Return predefined flows for local/offline mode
-    return PredefinedFlows.all;
+    // Deprecated - use getAllUserFlowTemplates instead
+    return [];
   }
   
   @override
   Future<GuidedFlow?> getGuidedFlowById(String id) async {
-    try {
-      return PredefinedFlows.all.firstWhere((f) => f.id == id);
-    } catch (_) {
-      return null;
-    }
+    // Deprecated - use getUserFlowTemplate instead
+    return null;
   }
   
   @override
   Future<GuidedFlow?> getGuidedFlowByWindowId(String windowId) async {
-    try {
-      return PredefinedFlows.all.firstWhere((f) => f.safetyWindowId == windowId);
-    } catch (_) {
-      return null;
-    }
+    // Deprecated - use getTemplateByWindowId instead
+    return null;
   }
   
   @override
   Future<void> upsertGuidedFlow(GuidedFlow flow) async {
-    // Not implemented for local - would need SQLite tables
-    debugPrint('⚠️ upsertGuidedFlow not implemented for local repository');
+    // Not implemented - use UserFlowTemplate methods
   }
   
   @override
   Future<void> deleteGuidedFlow(String id) async {
-    // Not implemented for local
-    debugPrint('⚠️ deleteGuidedFlow not implemented for local repository');
+    // Not implemented - use deleteUserFlowTemplate
   }
 
   // ==================== USER FLOW TEMPLATES ====================

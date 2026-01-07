@@ -1,6 +1,4 @@
-import 'package:uuid/uuid.dart';
 import 'sync_model.dart';
-import 'package:intl/intl.dart';
 
 /// Source of the activity log
 enum ActivitySource {

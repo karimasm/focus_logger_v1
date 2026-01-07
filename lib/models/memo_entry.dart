@@ -1,5 +1,4 @@
 import 'sync_model.dart';
-import 'package:uuid/uuid.dart';
 
 /// Memo entry for in-context notes during activities
 /// Does NOT stop the activity - just adds contextual notes

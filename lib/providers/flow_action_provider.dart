@@ -2,15 +2,12 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../data/data.dart';
 import '../models/models.dart';
-import '../services/flow_template_seeder.dart';
 import '../services/sync_service.dart';
 import '../services/user_service.dart';
 
 /// Provider for managing ad-hoc tasks and user flow templates
-/// This replaces the simple TaskProvider with a more robust system
 class FlowActionProvider extends ChangeNotifier {
   final DataRepository _repo = dataRepository;
-  final FlowTemplateSeeder _seeder = FlowTemplateSeeder();
   final SyncService _syncService = SyncService();
   
   // Ad-hoc tasks

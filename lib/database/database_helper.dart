@@ -235,19 +235,6 @@ class DatabaseHelper {
       )
     ''');
 
-    // No-brainer tasks table (Local Only)
-    // Keeping INTEGER ID for simplicity as it's not synced
-    await db.execute('''
-      CREATE TABLE nobrainer_tasks (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title TEXT NOT NULL,
-        isCompleted INTEGER DEFAULT 0,
-        completedAt TEXT,
-        createdAt TEXT NOT NULL,
-        sortOrder INTEGER DEFAULT 0
-      )
-    ''');
-
     // Guided flow logs table (Synced) - USER-SCOPED
     await db.execute('''
       CREATE TABLE guided_flow_logs (
@@ -462,33 +449,6 @@ class DatabaseHelper {
       where: 'id = ?',
       whereArgs: [timeSlot.id],
     );
-  }
-
-  // ==================== NOBRAINER TASK CRUD ====================
-  Future<int> insertNobrainerTask(NobrainerTask task) async {
-    final db = await database;
-    return await db.insert('nobrainer_tasks', task.toMap());
-  }
-
-  Future<List<NobrainerTask>> getAllNobrainerTasks() async {
-    final db = await database;
-    final maps = await db.query('nobrainer_tasks', orderBy: 'isCompleted ASC, sortOrder ASC');
-    return maps.map((map) => NobrainerTask.fromMap(map)).toList();
-  }
-
-  Future<int> updateNobrainerTask(NobrainerTask task) async {
-    final db = await database;
-    return await db.update(
-      'nobrainer_tasks',
-      task.toMap(),
-      where: 'id = ?',
-      whereArgs: [task.id],
-    );
-  }
-
-  Future<int> deleteNobrainerTask(int id) async {
-    final db = await database;
-    return await db.delete('nobrainer_tasks', where: 'id = ?', whereArgs: [id]);
   }
 
   // ==================== GUIDED FLOW LOG CRUD ====================

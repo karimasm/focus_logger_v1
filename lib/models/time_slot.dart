@@ -1,4 +1,3 @@
-import 'package:uuid/uuid.dart';
 import 'sync_model.dart'; // Just for UuidHelper if needed, though not implementing SyncableModel yet
 
 /// Represents an auto-generated 30-minute time slot

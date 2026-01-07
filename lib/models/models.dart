@@ -1,7 +1,6 @@
 export 'activity.dart';
 export 'pause_log.dart';
 export 'time_slot.dart';
-export 'nobrainer_task.dart';
 export 'guided_flow.dart';
 export 'safety_window.dart';
 export 'memo_entry.dart';

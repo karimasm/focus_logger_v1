@@ -12,7 +12,6 @@ class FocusLoggerApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => ActivityProvider()),
-        ChangeNotifierProvider(create: (_) => TaskProvider()),
         ChangeNotifierProvider(create: (_) => GuidedFlowProvider()),
         ChangeNotifierProvider(create: (_) => MemoProvider()),
         ChangeNotifierProvider(create: (_) => FlowActionProvider()),
