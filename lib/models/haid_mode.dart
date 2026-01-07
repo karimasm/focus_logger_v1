@@ -41,7 +41,7 @@ class HaidMode implements SyncableModel {
   /// Days since Haid Mode was activated
   int get daysSinceStart {
     if (startDate == null) return 0;
-    return DateTime.now().difference(startDate!).inDays;
+    return DateTime.now().toUtc().difference(startDate!).inDays;
   }
 
   /// Whether we should prompt user to check if still on period (after 5-7 days)
@@ -52,7 +52,7 @@ class HaidMode implements SyncableModel {
     if (days >= 5 && days <= 10) {
       // Don't prompt more than once per day
       if (lastPromptDate != null) {
-        final daysSincePrompt = DateTime.now().difference(lastPromptDate!).inDays;
+        final daysSincePrompt = DateTime.now().toUtc().difference(lastPromptDate!).inDays;
         return daysSincePrompt >= 1;
       }
       return true;
@@ -160,7 +160,7 @@ class HaidModeService {
     // If no ID exists, create a new default HaidMode
     final id = prefs.getString(_keyId);
     if (id == null) {
-      final now = DateTime.now();
+      final now = DateTime.now().toUtc();
       return HaidMode(
         id: UuidHelper.generate(),
         createdAt: now,
@@ -173,10 +173,10 @@ class HaidModeService {
       id: id,
       createdAt: prefs.getString(_keyCreatedAt) != null
           ? DateTime.parse(prefs.getString(_keyCreatedAt)!)
-          : DateTime.now(),
+          : DateTime.now().toUtc(),
       updatedAt: prefs.getString(_keyUpdatedAt) != null
           ? DateTime.parse(prefs.getString(_keyUpdatedAt)!)
-          : DateTime.now(),
+          : DateTime.now().toUtc(),
       deviceId: prefs.getString(_keyDeviceId),
       syncStatus: SyncStatus.values[prefs.getInt(_keySyncStatus) ?? 1],
       isActive: prefs.getBool(_keyIsActive) ?? false,
@@ -221,7 +221,7 @@ class HaidModeService {
   /// Activate Haid Mode
   static Future<HaidMode> activate() async {
     final current = await load();
-    final now = DateTime.now();
+    final now = DateTime.now().toUtc();
     final mode = current.copyWith(
       updatedAt: now,
       syncStatus: SyncStatus.pending,
@@ -236,7 +236,7 @@ class HaidModeService {
   static Future<HaidMode> deactivate() async {
     final current = await load();
     final mode = current.copyWith(
-      updatedAt: DateTime.now(),
+      updatedAt: DateTime.now().toUtc(),
       syncStatus: SyncStatus.pending,
       isActive: false,
     );
@@ -247,9 +247,9 @@ class HaidModeService {
   /// Mark that we prompted the user today
   static Future<HaidMode> markPrompted(HaidMode current) async {
     final mode = current.copyWith(
-      updatedAt: DateTime.now(),
+      updatedAt: DateTime.now().toUtc(),
       syncStatus: SyncStatus.pending,
-      lastPromptDate: DateTime.now(),
+      lastPromptDate: DateTime.now().toUtc(),
     );
     await save(mode);
     return mode;

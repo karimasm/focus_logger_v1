@@ -53,11 +53,11 @@ class PauseLog implements SyncableModel {
     this.customReason,
   }) : 
     id = id ?? UuidHelper.generate(),
-    createdAt = createdAt ?? DateTime.now(),
-    updatedAt = updatedAt ?? DateTime.now();
+    createdAt = createdAt ?? DateTime.now().toUtc(),
+    updatedAt = updatedAt ?? DateTime.now().toUtc();
 
   Duration get duration {
-    final end = resumeTime ?? DateTime.now();
+    final end = resumeTime ?? DateTime.now().toUtc();
     return end.difference(pauseTime);
   }
 

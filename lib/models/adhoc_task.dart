@@ -25,6 +25,15 @@ class AdHocTask implements SyncableModel {
   final DateTime? completedAt;  // When "DONE" was pressed
   final String? linkedActivityId; // Reference to logged activity
   
+  // Pause state
+  final bool isPaused;
+  final DateTime? pausedAt;       // When paused
+  final int pausedDurationSeconds; // Total seconds spent paused
+  
+  // Alarm/reminder
+  final DateTime? alarmTime;      // When to show fullscreen reminder
+  final bool alarmTriggered;      // Has alarm been shown?
+  
   final int sortOrder;
 
   AdHocTask({
@@ -40,11 +49,16 @@ class AdHocTask implements SyncableModel {
     this.startedAt,
     this.completedAt,
     this.linkedActivityId,
+    this.isPaused = false,
+    this.pausedAt,
+    this.pausedDurationSeconds = 0,
+    this.alarmTime,
+    this.alarmTriggered = false,
     this.sortOrder = 0,
   }) : 
     id = id ?? const Uuid().v4(),
-    createdAt = createdAt ?? DateTime.now(),
-    updatedAt = updatedAt ?? DateTime.now();
+    createdAt = createdAt ?? DateTime.now().toUtc(),
+    updatedAt = updatedAt ?? DateTime.now().toUtc();
 
   /// Age indicator - how long has this task been waiting
   Duration get age => DateTime.now().difference(createdAt);
@@ -62,11 +76,22 @@ class AdHocTask implements SyncableModel {
     }
   }
 
-  /// Duration of execution (from ON IT to DONE)
+  /// Duration of execution (from ON IT to DONE), excluding paused time
   Duration? get executionDuration {
     if (startedAt == null) return null;
     final end = completedAt ?? DateTime.now();
-    return end.difference(startedAt!);
+    final totalSeconds = end.difference(startedAt!).inSeconds;
+    
+    // Subtract paused duration
+    int activeSeconds = totalSeconds - pausedDurationSeconds;
+    
+    // If currently paused, also subtract time since pause started
+    if (isPaused && pausedAt != null) {
+      final currentPauseDuration = DateTime.now().difference(pausedAt!).inSeconds;
+      activeSeconds -= currentPauseDuration;
+    }
+    
+    return Duration(seconds: activeSeconds.clamp(0, totalSeconds));
   }
 
   AdHocTask copyWith({
@@ -82,12 +107,17 @@ class AdHocTask implements SyncableModel {
     DateTime? startedAt,
     DateTime? completedAt,
     String? linkedActivityId,
+    bool? isPaused,
+    DateTime? pausedAt,
+    int? pausedDurationSeconds,
+    DateTime? alarmTime,
+    bool? alarmTriggered,
     int? sortOrder,
   }) {
     return AdHocTask(
       id: id ?? this.id,
       createdAt: createdAt ?? this.createdAt,
-      updatedAt: updatedAt ?? DateTime.now(),
+      updatedAt: updatedAt ?? DateTime.now().toUtc(),
       deviceId: deviceId ?? this.deviceId,
       syncStatus: syncStatus ?? SyncStatus.pending,
       userId: userId ?? this.userId,
@@ -97,6 +127,11 @@ class AdHocTask implements SyncableModel {
       startedAt: startedAt ?? this.startedAt,
       completedAt: completedAt ?? this.completedAt,
       linkedActivityId: linkedActivityId ?? this.linkedActivityId,
+      isPaused: isPaused ?? this.isPaused,
+      pausedAt: pausedAt ?? this.pausedAt,
+      pausedDurationSeconds: pausedDurationSeconds ?? this.pausedDurationSeconds,
+      alarmTime: alarmTime ?? this.alarmTime,
+      alarmTriggered: alarmTriggered ?? this.alarmTriggered,
       sortOrder: sortOrder ?? this.sortOrder,
     );
   }
@@ -120,6 +155,11 @@ class AdHocTask implements SyncableModel {
       'started_at': startedAt?.toIso8601String(),
       'completed_at': completedAt?.toIso8601String(),
       'linked_activity_id': linkedActivityId,
+      'is_paused': isPaused ? 1 : 0,
+      'paused_at': pausedAt?.toIso8601String(),
+      'paused_duration_seconds': pausedDurationSeconds,
+      'alarm_time': alarmTime?.toIso8601String(),
+      'alarm_triggered': alarmTriggered ? 1 : 0,
       'sort_order': sortOrder,
     };
   }
@@ -138,6 +178,11 @@ class AdHocTask implements SyncableModel {
       'started_at': startedAt?.toIso8601String(),
       'completed_at': completedAt?.toIso8601String(),
       'linked_activity_id': linkedActivityId,
+      'is_paused': isPaused,
+      'paused_at': pausedAt?.toIso8601String(),
+      'paused_duration_seconds': pausedDurationSeconds,
+      'alarm_time': alarmTime?.toIso8601String(),
+      'alarm_triggered': alarmTriggered,
       'sort_order': sortOrder,
     };
   }
@@ -159,6 +204,15 @@ class AdHocTask implements SyncableModel {
           ? DateTime.parse(map['completed_at'] as String) 
           : null,
       linkedActivityId: map['linked_activity_id'] as String?,
+      isPaused: (map['is_paused'] as int?) == 1,
+      pausedAt: map['paused_at'] != null 
+          ? DateTime.parse(map['paused_at'] as String) 
+          : null,
+      pausedDurationSeconds: map['paused_duration_seconds'] as int? ?? 0,
+      alarmTime: map['alarm_time'] != null 
+          ? DateTime.parse(map['alarm_time'] as String) 
+          : null,
+      alarmTriggered: (map['alarm_triggered'] as int?) == 1,
       sortOrder: map['sort_order'] as int? ?? 0,
     );
   }
@@ -181,6 +235,15 @@ class AdHocTask implements SyncableModel {
           ? DateTime.parse(map['completed_at'] as String) 
           : null,
       linkedActivityId: map['linked_activity_id'] as String?,
+      isPaused: map['is_paused'] as bool? ?? false,
+      pausedAt: map['paused_at'] != null 
+          ? DateTime.parse(map['paused_at'] as String) 
+          : null,
+      pausedDurationSeconds: map['paused_duration_seconds'] as int? ?? 0,
+      alarmTime: map['alarm_time'] != null 
+          ? DateTime.parse(map['alarm_time'] as String) 
+          : null,
+      alarmTriggered: map['alarm_triggered'] as bool? ?? false,
       sortOrder: map['sort_order'] as int? ?? 0,
     );
   }

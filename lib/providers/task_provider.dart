@@ -33,7 +33,7 @@ class TaskProvider extends ChangeNotifier {
     final task = _tasks.firstWhere((t) => t.id == taskId);
     final updated = task.copyWith(
       isCompleted: !task.isCompleted,
-      completedAt: !task.isCompleted ? DateTime.now() : null,
+      completedAt: !task.isCompleted ? DateTime.now().toUtc() : null,  // FIX: Use UTC
     );
     await _db.updateNobrainerTask(updated);
     await loadTasks();

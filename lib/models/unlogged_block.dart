@@ -14,7 +14,7 @@ class UnloggedBlock {
     required this.endTime,
     DateTime? createdAt,
   }) : id = id ?? const Uuid().v4(),
-       createdAt = createdAt ?? DateTime.now();
+       createdAt = createdAt ?? DateTime.now().toUtc();
 
   Map<String, dynamic> toMap() {
     return {

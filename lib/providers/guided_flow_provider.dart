@@ -438,7 +438,7 @@ class GuidedFlowProvider extends ChangeNotifier {
     _currentFlowLog = GuidedFlowLog(
       flowId: template.id,
       flowName: template.name,
-      triggeredAt: DateTime.now(),
+      triggeredAt: DateTime.now().toUtc(),  // FIX: Use UTC
       totalSteps: template.steps.length,
       stepsCompleted: 0, // 0 until user presses ON IT and completes steps
       userId: UserService().currentUserId,
@@ -448,7 +448,7 @@ class GuidedFlowProvider extends ChangeNotifier {
     await _repo.insertGuidedFlowLog(_currentFlowLog!);
     
     // Update last triggered time
-    await _repo.updateGuidedFlowLastTriggered(template.id, DateTime.now());
+    await _repo.updateGuidedFlowLastTriggered(template.id, DateTime.now().toUtc());  // FIX: Use UTC
     
     notifyListeners();
   }
@@ -473,7 +473,8 @@ class GuidedFlowProvider extends ChangeNotifier {
   Future<void> startCurrentStep() async {
     if (_state != GuidedFlowState.waiting || currentStep == null) return;
     
-    final now = DateTime.now();
+    // FIX: Use UTC for consistent timezone handling
+    final now = DateTime.now().toUtc();
     _stepStartTime = now;
     _state = GuidedFlowState.inProgress;
     
@@ -489,7 +490,7 @@ class GuidedFlowProvider extends ChangeNotifier {
     final activity = Activity(
       name: currentStep!.activityName,
       category: _activeTemplate!.category,
-      startTime: now, // REAL timestamp when user tapped
+      startTime: now, // REAL timestamp when user tapped (UTC)
       isRunning: true,
       source: ActivitySource.guided,
       guidedFlowId: _activeTemplate!.id,
@@ -516,7 +517,8 @@ class GuidedFlowProvider extends ChangeNotifier {
       return;
     }
     
-    final now = DateTime.now();
+    // FIX: Use UTC for consistent timezone handling
+    final now = DateTime.now().toUtc();
     
     // Stop the activity
     final completedActivity = _currentStepActivity!.copyWith(
@@ -559,7 +561,8 @@ class GuidedFlowProvider extends ChangeNotifier {
   /// Complete the entire flow
   /// CORRECTED: This is only called when user pressed ON IT AND completed all steps
   Future<void> _completeFlow() async {
-    final now = DateTime.now();
+    // FIX: Use UTC for consistent timezone handling
+    final now = DateTime.now().toUtc();
     
     _currentFlowLog = _currentFlowLog!.copyWith(
       completedAt: now,

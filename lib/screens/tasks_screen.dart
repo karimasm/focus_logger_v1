@@ -7,7 +7,7 @@ import '../widgets/energy_check_dialog.dart';
 import '../theme/theme.dart';
 
 /// Flow & Action Manager - Redesigned Tasks Screen
-/// Two parts: Flow Templates (IF-THEN chains) and Ad-Hoc Tasks
+/// Two parts: Flow Templates (routines) and To-Do List (one-time tasks)
 class TasksScreen extends StatefulWidget {
   const TasksScreen({super.key});
 
@@ -88,8 +88,8 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
                 indicatorColor: AppColors.accent,
                 tabs: const [
                   Tab(
-                    icon: Icon(Icons.play_circle_outline_rounded, size: 20),
-                    text: 'Ad-Hoc Tasks',
+                    icon: Icon(Icons.checklist_rounded, size: 20),
+                    text: 'To-Do',
                   ),
                   Tab(
                     icon: Icon(Icons.account_tree_rounded, size: 20),
@@ -132,7 +132,7 @@ class _AdHocTasksTab extends StatelessWidget {
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: _QuickAddTask(
-                  onAdd: (title) => flowProvider.createTask(title),
+                  onAdd: (title, {DateTime? alarmTime}) => flowProvider.createTask(title, alarmTime: alarmTime),
                 ),
               ),
             ),
@@ -148,16 +148,22 @@ class _AdHocTasksTab extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 sliver: SliverList(
                   delegate: SliverChildBuilderDelegate(
-                    (context, index) => _InProgressTaskItem(
-                      task: inProgress[index],
-                      onComplete: () => _handleTaskComplete(
-                        context, 
-                        flowProvider, 
-                        activityProvider, 
-                        inProgress[index].id,
-                      ),
-                      onCancel: () => flowProvider.cancelTask(inProgress[index].id),
-                    ),
+                    (context, index) {
+                      final task = inProgress[index];
+                      return _InProgressTaskItem(
+                        task: task,
+                        onComplete: () => _handleTaskComplete(
+                          context, 
+                          flowProvider, 
+                          activityProvider, 
+                          task.id,
+                        ),
+                        onCancel: () => flowProvider.cancelTask(task.id),
+                        onPause: () => flowProvider.pauseTask(task.id),
+                        onResume: () => flowProvider.resumeTask(task.id),
+                        onMemo: () => _showMemoDialog(context, task),
+                      );
+                    },
                     childCount: inProgress.length,
                   ),
                 ),
@@ -259,10 +265,10 @@ class _AdHocTasksTab extends StatelessWidget {
     
     // If there's a running activity, pause it first
     if (currentActivity != null && currentActivity.isRunning && !currentActivity.isPaused) {
-      // Pause with ad-hoc task reason
+      // Pause with to-do task reason
       await activityProvider.pauseActivity(
         PauseReason.adHocTask,
-        customReason: 'Doing Ad-Hoc – ${task.title}',
+        customReason: 'Doing To-Do: ${task.title}',
       );
     }
     
@@ -352,7 +358,7 @@ class _AdHocTasksTab extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             Text(
-              'This activity was paused when you started the ad-hoc task.',
+              'This activity was paused when you started the to-do task.',
               style: TextStyle(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
@@ -395,6 +401,195 @@ class _AdHocTasksTab extends StatelessWidget {
     // User can optionally change the reason here
     // For now, just leave it as is
   }
+  
+  /// Show memo dialog for adhoc task
+  void _showMemoDialog(BuildContext context, AdHocTask task) {
+    if (task.linkedActivityId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No linked activity for memo')),
+      );
+      return;
+    }
+    
+    final controller = TextEditingController();
+    
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          left: 24,
+          right: 24,
+          top: 24,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.note_add_rounded),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Add Memo',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                      ),
+                      Text(
+                        task.title,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              maxLines: 4,
+              decoration: InputDecoration(
+                hintText: 'Write your memo...',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () async {
+                  if (controller.text.trim().isEmpty) return;
+                  
+                  final memoProvider = Provider.of<MemoProvider>(context, listen: false);
+                  await memoProvider.addMemo(
+                    activityId: task.linkedActivityId!,
+                    text: controller.text.trim(),
+                  );
+                  if (context.mounted) Navigator.pop(context);
+                },
+                child: const Text('Save Memo'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  /// Show set alarm dialog for adhoc task  
+  void _showSetAlarmDialog(BuildContext context, FlowActionProvider flowProvider, AdHocTask task) {
+    TimeOfDay selectedTime = TimeOfDay.now();
+    
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.alarm_rounded, size: 24),
+                  const SizedBox(width: 12),
+                  const Text(
+                    'Set Reminder',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Reminder untuk: ${task.title}',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 24),
+              
+              InkWell(
+                onTap: () async {
+                  final picked = await showTimePicker(
+                    context: context,
+                    initialTime: selectedTime,
+                  );
+                  if (picked != null) {
+                    setState(() => selectedTime = picked);
+                  }
+                },
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.access_time_rounded),
+                      const SizedBox(width: 12),
+                      Text(
+                        selectedTime.format(context),
+                        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w500),
+                      ),
+                      const Spacer(),
+                      const Icon(Icons.edit_rounded, size: 20),
+                    ],
+                  ),
+                ),
+              ),
+              
+              const SizedBox(height: 24),
+              
+              Row(
+                children: [
+                  if (task.alarmTime != null)
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () {
+                          flowProvider.clearTaskAlarm(task.id);
+                          Navigator.pop(context);
+                        },
+                        child: const Text('Clear Alarm'),
+                      ),
+                    ),
+                  if (task.alarmTime != null) const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () {
+                        final now = DateTime.now();
+                        final alarmTime = DateTime(
+                          now.year, now.month, now.day,
+                          selectedTime.hour, selectedTime.minute,
+                        );
+                        flowProvider.setTaskAlarm(task.id, alarmTime);
+                        Navigator.pop(context);
+                      },
+                      child: const Text('Set Alarm'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   void _showClearConfirmation(BuildContext context, FlowActionProvider provider) {
     showDialog(
@@ -421,7 +616,7 @@ class _AdHocTasksTab extends StatelessWidget {
 }
 
 class _QuickAddTask extends StatefulWidget {
-  final Function(String) onAdd;
+  final Function(String, {DateTime? alarmTime}) onAdd;
 
   const _QuickAddTask({required this.onAdd});
 
@@ -432,6 +627,7 @@ class _QuickAddTask extends StatefulWidget {
 class _QuickAddTaskState extends State<_QuickAddTask> {
   final _controller = TextEditingController();
   final _focusNode = FocusNode();
+  DateTime? _selectedAlarm;
 
   @override
   void dispose() {
@@ -443,9 +639,29 @@ class _QuickAddTaskState extends State<_QuickAddTask> {
   void _submit() {
     final text = _controller.text.trim();
     if (text.isNotEmpty) {
-      widget.onAdd(text);
+      widget.onAdd(text, alarmTime: _selectedAlarm);
       _controller.clear();
       _focusNode.unfocus();
+      setState(() => _selectedAlarm = null);
+    }
+  }
+  
+  Future<void> _pickAlarmTime() async {
+    final now = DateTime.now();
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(now.add(const Duration(hours: 1))),
+      helpText: 'Set Reminder Time',
+    );
+    
+    if (time != null) {
+      setState(() {
+        _selectedAlarm = DateTime(now.year, now.month, now.day, time.hour, time.minute);
+        // If time is in the past, set it for tomorrow
+        if (_selectedAlarm!.isBefore(now)) {
+          _selectedAlarm = _selectedAlarm!.add(const Duration(days: 1));
+        }
+      });
     }
   }
 
@@ -453,34 +669,71 @@ class _QuickAddTaskState extends State<_QuickAddTask> {
   Widget build(BuildContext context) {
     return Container(
       decoration: AppColors.panelDecoration(),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Expanded(
-            child: TextField(
-              controller: _controller,
-              focusNode: _focusNode,
-              style: const TextStyle(color: AppColors.textOnPanel),
-              decoration: const InputDecoration(
-                hintText: 'Add a quick task...',
-                hintStyle: TextStyle(color: AppColors.textOnPanelMuted),
-                border: InputBorder.none,
-                contentPadding: EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 14,
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _controller,
+                  focusNode: _focusNode,
+                  style: const TextStyle(color: AppColors.textOnPanel),
+                  decoration: const InputDecoration(
+                    hintText: 'Add a quick task...',
+                    hintStyle: TextStyle(color: AppColors.textOnPanelMuted),
+                    border: InputBorder.none,
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
+                  ),
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _submit(),
                 ),
               ),
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => _submit(),
-            ),
+              // Alarm button
+              IconButton(
+                onPressed: _pickAlarmTime,
+                icon: Icon(
+                  _selectedAlarm != null ? Icons.alarm_on : Icons.alarm_add,
+                  color: _selectedAlarm != null ? Colors.orange : AppColors.textOnPanelMuted,
+                ),
+                tooltip: 'Set reminder',
+              ),
+              IconButton(
+                onPressed: _submit,
+                icon: const Icon(
+                  Icons.add_circle_rounded,
+                  color: AppColors.accent,
+                ),
+              ),
+              const SizedBox(width: 8),
+            ],
           ),
-          IconButton(
-            onPressed: _submit,
-            icon: const Icon(
-              Icons.add_circle_rounded,
-              color: AppColors.accent,
+          // Show selected alarm time
+          if (_selectedAlarm != null)
+            Padding(
+              padding: const EdgeInsets.only(left: 16, right: 16, bottom: 12),
+              child: Row(
+                children: [
+                  Icon(Icons.alarm, size: 16, color: Colors.orange.shade600),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Reminder: ${DateFormat('HH:mm').format(_selectedAlarm!)}',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.orange.shade600,
+                    ),
+                  ),
+                  const Spacer(),
+                  InkWell(
+                    onTap: () => setState(() => _selectedAlarm = null),
+                    child: Icon(Icons.close, size: 18, color: Colors.orange.shade600),
+                  ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(width: 8),
         ],
       ),
     );
@@ -543,6 +796,9 @@ class _PendingTaskItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isSmallScreen = screenWidth < 360;
+    
     return Dismissible(
       key: ValueKey(task.id),
       direction: DismissDirection.endToStart,
@@ -572,26 +828,29 @@ class _PendingTaskItem extends StatelessWidget {
             onTap: onStart,
             borderRadius: BorderRadius.circular(12),
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
               child: Row(
                 children: [
                   // ON IT button
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isSmallScreen ? 10 : 12,
+                      vertical: isSmallScreen ? 5 : 6,
+                    ),
                     decoration: BoxDecoration(
                       color: Theme.of(context).colorScheme.primary,
                       borderRadius: BorderRadius.circular(20),
                     ),
-                    child: const Text(
+                    child: Text(
                       'ON IT',
                       style: TextStyle(
                         color: Colors.white,
-                        fontSize: 12,
+                        fontSize: isSmallScreen ? 11 : 12,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  SizedBox(width: isSmallScreen ? 8 : 12),
                   
                   // Task info
                   Expanded(
@@ -600,17 +859,17 @@ class _PendingTaskItem extends StatelessWidget {
                       children: [
                         Text(
                           task.title,
-                          style: const TextStyle(
-                            fontSize: 16,
+                          style: TextStyle(
+                            fontSize: isSmallScreen ? 14 : 16,
                             fontWeight: FontWeight.w500,
-                            color: Colors.white,
+                            color: Theme.of(context).colorScheme.onSurface,
                           ),
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 2),
                         Text(
                           task.ageDescription,
                           style: TextStyle(
-                            fontSize: 12,
+                            fontSize: isSmallScreen ? 11 : 12,
                             color: task.age.inDays > 3
                                 ? Colors.orange
                                 : Theme.of(context).colorScheme.onSurfaceVariant,
@@ -640,99 +899,161 @@ class _InProgressTaskItem extends StatelessWidget {
   final AdHocTask task;
   final VoidCallback onComplete;
   final VoidCallback onCancel;
+  final VoidCallback onPause;
+  final VoidCallback onResume;
+  final VoidCallback onMemo;
 
   const _InProgressTaskItem({
     required this.task,
     required this.onComplete,
     required this.onCancel,
+    required this.onPause,
+    required this.onResume,
+    required this.onMemo,
   });
 
   @override
   Widget build(BuildContext context) {
     final elapsed = task.executionDuration ?? Duration.zero;
     final elapsedStr = _formatDuration(elapsed);
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isSmallScreen = screenWidth < 360;
+    final isPaused = task.isPaused;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            Colors.orange.withOpacity(0.15),
-            Colors.amber.withOpacity(0.1),
-          ],
+          colors: isPaused
+              ? [Colors.amber.withOpacity(0.15), Colors.yellow.withOpacity(0.1)]
+              : [Colors.orange.withOpacity(0.15), Colors.amber.withOpacity(0.1)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.orange.withOpacity(0.4)),
+        border: Border.all(
+          color: isPaused 
+              ? Colors.amber.withOpacity(0.4) 
+              : Colors.orange.withOpacity(0.4),
+        ),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
                 Container(
-                  width: 12,
-                  height: 12,
+                  width: 10,
+                  height: 10,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: Colors.orange,
-                    boxShadow: [
+                    color: isPaused ? Colors.amber : Colors.orange,
+                    boxShadow: isPaused ? null : [
                       BoxShadow(
                         color: Colors.orange.withOpacity(0.5),
-                        blurRadius: 8,
+                        blurRadius: 6,
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 6),
                 Text(
-                  'IN PROGRESS',
+                  isPaused ? 'PAUSED' : 'IN PROGRESS',
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: isSmallScreen ? 10 : 11,
                     fontWeight: FontWeight.w600,
-                    letterSpacing: 1,
-                    color: Colors.orange.shade700,
+                    letterSpacing: 0.5,
+                    color: isPaused ? Colors.amber.shade700 : Colors.orange.shade700,
                   ),
                 ),
                 const Spacer(),
                 Text(
                   elapsedStr,
-                  style: const TextStyle(
-                    fontSize: 14,
+                  style: TextStyle(
+                    fontSize: isSmallScreen ? 13 : 14,
                     fontWeight: FontWeight.w600,
-                    fontFeatures: [FontFeature.tabularFigures()],
+                    fontFeatures: const [FontFeature.tabularFigures()],
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             Text(
               task.title,
-              style: const TextStyle(
-                fontSize: 18,
+              style: TextStyle(
+                fontSize: isSmallScreen ? 16 : 18,
                 fontWeight: FontWeight.w600,
+                color: Theme.of(context).colorScheme.onSurface,
               ),
             ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: onCancel,
-                    child: const Text('Cancel'),
-                  ),
+            
+            // Alarm indicator
+            if (task.alarmTime != null && !task.alarmTriggered)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Row(
+                  children: [
+                    Icon(Icons.alarm, size: 14, color: Colors.orange.shade600),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Reminder: ${DateFormat('HH:mm').format(task.alarmTime!.toLocal())}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.orange.shade600,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
-                  child: FilledButton.icon(
-                    onPressed: onComplete,
-                    icon: const Icon(Icons.check_rounded),
-                    label: const Text('DONE'),
+              ),
+            
+            const SizedBox(height: 12),
+            
+            // Button row with more options
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                // Pause / Resume button
+                if (isPaused)
+                  _TaskButton(
+                    icon: Icons.play_arrow_rounded,
+                    label: 'Resume',
+                    isPrimary: true,
+                    onPressed: onResume,
+                  )
+                else
+                  _TaskButton(
+                    icon: Icons.pause_rounded,
+                    label: 'Pause',
+                    isPrimary: false,
+                    onPressed: onPause,
                   ),
+                
+                // Done button
+                _TaskButton(
+                  icon: Icons.check_rounded,
+                  label: 'DONE',
+                  isPrimary: !isPaused,
+                  onPressed: onComplete,
+                ),
+                
+                // Memo button
+                _TaskButton(
+                  icon: Icons.note_add_rounded,
+                  label: 'Memo',
+                  isPrimary: false,
+                  onPressed: onMemo,
+                ),
+                
+                // Cancel button
+                _TaskButton(
+                  icon: Icons.close_rounded,
+                  label: isSmallScreen ? 'X' : 'Cancel',
+                  isPrimary: false,
+                  isDestructive: true,
+                  onPressed: onCancel,
                 ),
               ],
             ),
@@ -753,6 +1074,49 @@ class _InProgressTaskItem extends StatelessWidget {
     } else {
       return '${s}s';
     }
+  }
+}
+
+/// Small button widget for task controls
+class _TaskButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool isPrimary;
+  final bool isDestructive;
+  final VoidCallback onPressed;
+
+  const _TaskButton({
+    required this.icon,
+    required this.label,
+    required this.isPrimary,
+    this.isDestructive = false,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 36,
+      child: isPrimary
+          ? FilledButton.icon(
+              onPressed: onPressed,
+              icon: Icon(icon, size: 16),
+              label: Text(label, style: const TextStyle(fontSize: 12)),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+              ),
+            )
+          : OutlinedButton.icon(
+              onPressed: onPressed,
+              icon: Icon(icon, size: 16, color: isDestructive ? Colors.red : null),
+              label: Text(label, style: const TextStyle(fontSize: 12)),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: isDestructive ? Colors.red : null,
+                side: isDestructive ? const BorderSide(color: Colors.red) : null,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+              ),
+            ),
+    );
   }
 }
 
@@ -1112,10 +1476,10 @@ class _FlowTemplateCard extends StatelessWidget {
                     Expanded(
                       child: Text(
                         template.name,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
-                          color: Colors.white,
+                          color: Theme.of(context).colorScheme.onSurface,
                         ),
                       ),
                     ),
@@ -1150,9 +1514,9 @@ class _FlowTemplateCard extends StatelessWidget {
                             Expanded(
                               child: Text(
                                 firstStep.ifCondition,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 13,
-                                  color: Colors.white70,
+                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                                 ),
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -1173,9 +1537,9 @@ class _FlowTemplateCard extends StatelessWidget {
                             Expanded(
                               child: Text(
                                 firstStep.thenAction,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 13,
-                                  color: Colors.white70,
+                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                                 ),
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -1478,14 +1842,16 @@ class _StepCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        color: colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(0.5),
+          color: colorScheme.outlineVariant.withOpacity(0.5),
         ),
       ),
       child: Column(
@@ -1498,13 +1864,13 @@ class _StepCard extends StatelessWidget {
                 height: 28,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: Theme.of(context).colorScheme.primary,
+                  color: colorScheme.primary,
                 ),
                 child: Center(
                   child: Text(
                     '$stepNumber',
-                    style: const TextStyle(
-                      color: Colors.white,
+                    style: TextStyle(
+                      color: colorScheme.onPrimary,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -1514,10 +1880,10 @@ class _StepCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   step.activityName,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
-                    color: Colors.white,
+                    color: colorScheme.onSurface,
                   ),
                 ),
               ),
@@ -1533,7 +1899,7 @@ class _StepCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3),
+              color: colorScheme.primaryContainer.withOpacity(0.3),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Column(
@@ -1541,16 +1907,16 @@ class _StepCard extends StatelessWidget {
               children: [
                 RichText(
                   text: TextSpan(
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 14,
-                      color: Colors.white70,
+                      color: colorScheme.onSurfaceVariant,
                     ),
                     children: [
                       TextSpan(
                         text: 'IF ',
                         style: TextStyle(
                           fontWeight: FontWeight.w600,
-                          color: Theme.of(context).colorScheme.primary,
+                          color: colorScheme.primary,
                         ),
                       ),
                       TextSpan(text: step.ifCondition),
@@ -1560,16 +1926,16 @@ class _StepCard extends StatelessWidget {
                 const SizedBox(height: 8),
                 RichText(
                   text: TextSpan(
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 14,
-                      color: Colors.white70,
+                      color: colorScheme.onSurfaceVariant,
                     ),
                     children: [
                       TextSpan(
                         text: 'THEN ',
                         style: TextStyle(
                           fontWeight: FontWeight.w600,
-                          color: Theme.of(context).colorScheme.primary,
+                          color: colorScheme.primary,
                         ),
                       ),
                       TextSpan(text: step.thenAction),

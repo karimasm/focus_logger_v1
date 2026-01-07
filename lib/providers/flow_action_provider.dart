@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../data/data.dart';
 import '../models/models.dart';
@@ -20,11 +21,25 @@ class FlowActionProvider extends ChangeNotifier {
   // User flow templates
   List<UserFlowTemplate> _flowTemplates = [];
   
+  // Timer for updating in-progress tasks
+  Timer? _taskTimer;
+  
   // Getters
   List<AdHocTask> get pendingTasks => _pendingTasks;
   List<AdHocTask> get inProgressTasks => _inProgressTasks;
   List<AdHocTask> get completedTasks => _completedTasks;
   List<UserFlowTemplate> get flowTemplates => _flowTemplates;
+  
+  /// Get the currently active (running, not paused) adhoc task
+  AdHocTask? get activeAdhocTask => _inProgressTasks.isNotEmpty && !_inProgressTasks.first.isPaused
+      ? _inProgressTasks.first
+      : null;
+  
+  /// Check if there's an adhoc task in progress (running or paused)
+  bool get hasAdhocInProgress => _inProgressTasks.isNotEmpty;
+  
+  /// Check if the active adhoc task is paused
+  bool get isAdhocPaused => _inProgressTasks.isNotEmpty && _inProgressTasks.first.isPaused;
   
   /// Get only templates linked to safety windows (enforced routines)
   List<UserFlowTemplate> get enforcedFlows => 
@@ -42,6 +57,53 @@ class FlowActionProvider extends ChangeNotifier {
     // Seeding now happens in main.dart via FlowSeederService
     await loadAdHocTasks();
     await loadFlowTemplates();
+    _startTaskTimer();
+  }
+  
+  void _startTaskTimer() {
+    _taskTimer?.cancel();
+    _taskTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_inProgressTasks.isNotEmpty) {
+        // Check for alarm triggers
+        _checkAdhocAlarms();
+        notifyListeners();
+      }
+    });
+  }
+  
+  /// Check if any adhoc task alarm should trigger
+  /// Note: Just for notifyListeners - actual alarm display is handled by UI
+  void _checkAdhocAlarms() {
+    // Just trigger UI update, don't log every second
+    // The actual alarm handling is done in home_screen._checkTodoAlarm()
+  }
+  
+  /// Get adhoc task that needs alarm reminder shown
+  AdHocTask? get adhocNeedingAlarmReminder {
+    final now = DateTime.now();
+    for (final task in _inProgressTasks) {
+      if (task.alarmTime != null && 
+          !task.alarmTriggered && 
+          now.isAfter(task.alarmTime!)) {
+        return task;
+      }
+    }
+    return null;
+  }
+  
+  /// Mark alarm as triggered for a task
+  Future<void> markAlarmTriggered(String taskId) async {
+    final taskIndex = _inProgressTasks.indexWhere((t) => t.id == taskId);
+    if (taskIndex == -1) return;
+    
+    final task = _inProgressTasks[taskIndex];
+    final userId = UserService().currentUserId;
+    final updatedTask = task.copyWith(
+      alarmTriggered: true,
+      userId: task.userId ?? userId,
+    );
+    await _repo.updateAdHocTask(updatedTask);
+    await loadAdHocTasks();
   }
   
   // ==================== AD-HOC TASKS ====================
@@ -54,12 +116,14 @@ class FlowActionProvider extends ChangeNotifier {
   }
   
   /// Create a new ad-hoc task
-  Future<void> createTask(String title, {String? description}) async {
+  Future<void> createTask(String title, {String? description, DateTime? alarmTime}) async {
     final task = AdHocTask(
       title: title,
       description: description,
       sortOrder: _pendingTasks.length,
       userId: UserService().currentUserId,
+      alarmTime: alarmTime?.toUtc(),
+      alarmTriggered: false,
     );
     await _repo.insertAdHocTask(task);
     await loadAdHocTasks();
@@ -90,7 +154,8 @@ class FlowActionProvider extends ChangeNotifier {
     if (taskIndex == -1) return null;
     
     final task = _pendingTasks[taskIndex];
-    final now = DateTime.now();
+    // FIX: Use UTC for consistent timezone handling
+    final now = DateTime.now().toUtc();
     
     // Store reference to the activity we're about to pause
     if (currentRunningActivity != null && currentRunningActivity.isRunning) {
@@ -101,6 +166,9 @@ class FlowActionProvider extends ChangeNotifier {
       // with the pause reason: "Doing Ad-Hoc – <task name>"
     }
     
+    // FIX: Get current user ID for database constraint
+    final userId = UserService().currentUserId;
+    
     // Create an activity for this task
     final activity = Activity(
       name: task.title,
@@ -108,14 +176,16 @@ class FlowActionProvider extends ChangeNotifier {
       startTime: now,
       isRunning: true,
       source: ActivitySource.manual,
+      userId: userId,  // FIX: Add user_id
     );
     await _repo.insertActivity(activity);
     
-    // Update task state
+    // Update task state with user_id (ensure userId is set for legacy tasks)
     final updatedTask = task.copyWith(
       executionState: TaskExecutionState.inProgress,
       startedAt: now,
       linkedActivityId: activity.id,
+      userId: task.userId ?? userId,  // FIX: Ensure userId is set
     );
     await _repo.updateAdHocTask(updatedTask);
     await loadAdHocTasks();
@@ -134,7 +204,10 @@ class FlowActionProvider extends ChangeNotifier {
     if (taskIndex == -1) return null;
     
     final task = _inProgressTasks[taskIndex];
-    final now = DateTime.now();
+    // FIX: Use UTC for consistent timezone handling
+    final now = DateTime.now().toUtc();
+    // FIX: Get userId for database constraint
+    final userId = UserService().currentUserId;
     
     // Stop the linked activity if it exists
     if (task.linkedActivityId != null) {
@@ -148,10 +221,11 @@ class FlowActionProvider extends ChangeNotifier {
       }
     }
     
-    // Update task state
+    // Update task state with userId
     final updatedTask = task.copyWith(
       executionState: TaskExecutionState.completed,
       completedAt: now,
+      userId: task.userId ?? userId,  // FIX: Ensure userId is set
     );
     await _repo.updateAdHocTask(updatedTask);
     await loadAdHocTasks();
@@ -180,18 +254,22 @@ class FlowActionProvider extends ChangeNotifier {
       final activity = await _repo.getActivity(task.linkedActivityId!);
       if (activity != null && activity.isRunning) {
         final updated = activity.copyWith(
-          endTime: DateTime.now(),
+          endTime: DateTime.now().toUtc(),
           isRunning: false,
         );
         await _repo.updateActivity(updated);
       }
     }
     
+    // FIX: Get userId for database constraint
+    final userId = UserService().currentUserId;
+    
     // Reset task to pending (but keep the created_at for age tracking)
     final updatedTask = task.copyWith(
       executionState: TaskExecutionState.pending,
       startedAt: null,
       linkedActivityId: null,
+      userId: task.userId ?? userId,  // FIX: Ensure userId is set
     );
     await _repo.updateAdHocTask(updatedTask);
     await loadAdHocTasks();
@@ -217,11 +295,219 @@ class FlowActionProvider extends ChangeNotifier {
     final task = _pendingTasks.removeAt(oldIndex);
     _pendingTasks.insert(newIndex, task);
     
+    final userId = UserService().currentUserId;
     for (int i = 0; i < _pendingTasks.length; i++) {
-      final updated = _pendingTasks[i].copyWith(sortOrder: i);
+      final updated = _pendingTasks[i].copyWith(
+        sortOrder: i,
+        userId: _pendingTasks[i].userId ?? userId,  // FIX: Ensure userId
+      );
       await _repo.updateAdHocTask(updated);
     }
     notifyListeners();
+  }
+  
+  /// Pause an in-progress adhoc task
+  Future<void> pauseTask(String taskId, {String? reason}) async {
+    final taskIndex = _inProgressTasks.indexWhere((t) => t.id == taskId);
+    if (taskIndex == -1) return;
+    
+    final task = _inProgressTasks[taskIndex];
+    if (task.isPaused) return; // Already paused
+    
+    final now = DateTime.now().toUtc();
+    final userId = UserService().currentUserId;
+    
+    // Also pause the linked activity if running
+    if (task.linkedActivityId != null) {
+      final activity = await _repo.getActivity(task.linkedActivityId!);
+      if (activity != null && activity.isRunning && !activity.isPaused) {
+        final updated = activity.copyWith(
+          isPaused: true,
+          pausedAt: now,
+        );
+        await _repo.updateActivity(updated);
+      }
+    }
+    
+    final updatedTask = task.copyWith(
+      isPaused: true,
+      pausedAt: now,
+      userId: task.userId ?? userId,
+    );
+    await _repo.updateAdHocTask(updatedTask);
+    await loadAdHocTasks();
+    
+    await _syncService.triggerSync(SyncEvent.paused);
+  }
+  
+  /// Resume a paused adhoc task
+  Future<void> resumeTask(String taskId) async {
+    final taskIndex = _inProgressTasks.indexWhere((t) => t.id == taskId);
+    if (taskIndex == -1) return;
+    
+    final task = _inProgressTasks[taskIndex];
+    if (!task.isPaused) return; // Not paused
+    
+    final now = DateTime.now().toUtc();
+    final userId = UserService().currentUserId;
+    
+    // Calculate pause duration
+    int additionalPausedSeconds = 0;
+    if (task.pausedAt != null) {
+      additionalPausedSeconds = now.difference(task.pausedAt!.toUtc()).inSeconds;
+    }
+    
+    // Also resume the linked activity
+    if (task.linkedActivityId != null) {
+      final activity = await _repo.getActivity(task.linkedActivityId!);
+      if (activity != null && activity.isPaused) {
+        final activityPauseDuration = activity.pausedAt != null
+            ? now.difference(activity.pausedAt!.toUtc()).inSeconds
+            : 0;
+        final updated = activity.copyWith(
+          isPaused: false,
+          pausedAt: null,
+          pausedDurationSeconds: activity.pausedDurationSeconds + activityPauseDuration,
+        );
+        await _repo.updateActivity(updated);
+      }
+    }
+    
+    final updatedTask = task.copyWith(
+      isPaused: false,
+      pausedAt: null,
+      pausedDurationSeconds: task.pausedDurationSeconds + additionalPausedSeconds,
+      userId: task.userId ?? userId,
+    );
+    await _repo.updateAdHocTask(updatedTask);
+    await loadAdHocTasks();
+    
+    await _syncService.triggerSync(SyncEvent.resumed);
+  }
+  
+  /// Stop an in-progress adhoc task (without marking complete)
+  Future<void> stopTask(String taskId) async {
+    final taskIndex = _inProgressTasks.indexWhere((t) => t.id == taskId);
+    if (taskIndex == -1) return;
+    
+    final task = _inProgressTasks[taskIndex];
+    final now = DateTime.now().toUtc();
+    final userId = UserService().currentUserId;
+    
+    // Calculate final paused duration if currently paused
+    int finalPausedSeconds = task.pausedDurationSeconds;
+    if (task.isPaused && task.pausedAt != null) {
+      finalPausedSeconds += now.difference(task.pausedAt!.toUtc()).inSeconds;
+    }
+    
+    // Stop the linked activity if running
+    if (task.linkedActivityId != null) {
+      final activity = await _repo.getActivity(task.linkedActivityId!);
+      if (activity != null && activity.isRunning) {
+        final updated = activity.copyWith(
+          endTime: now,
+          isRunning: false,
+          isPaused: false,
+        );
+        await _repo.updateActivity(updated);
+      }
+    }
+    
+    // Mark task as completed (stopped = done for adhoc)
+    final updatedTask = task.copyWith(
+      executionState: TaskExecutionState.completed,
+      completedAt: now,
+      isPaused: false,
+      pausedAt: null,
+      pausedDurationSeconds: finalPausedSeconds,
+      userId: task.userId ?? userId,
+    );
+    await _repo.updateAdHocTask(updatedTask);
+    await loadAdHocTasks();
+    
+    await _syncService.triggerSync(SyncEvent.adHocCompleted);
+    
+    // Clear paused activity reference
+    clearPausedActivityReference();
+  }
+  
+  /// Set alarm time for an adhoc task
+  Future<void> setTaskAlarm(String taskId, DateTime alarmTime) async {
+    final userId = UserService().currentUserId;
+    
+    final taskIndex = _inProgressTasks.indexWhere((t) => t.id == taskId);
+    if (taskIndex == -1) {
+      // Check pending tasks too
+      final pendingIndex = _pendingTasks.indexWhere((t) => t.id == taskId);
+      if (pendingIndex == -1) return;
+      
+      final task = _pendingTasks[pendingIndex];
+      final updatedTask = task.copyWith(
+        alarmTime: alarmTime.toUtc(),
+        alarmTriggered: false,
+        userId: task.userId ?? userId,
+      );
+      await _repo.updateAdHocTask(updatedTask);
+      await loadAdHocTasks();
+      return;
+    }
+    
+    final task = _inProgressTasks[taskIndex];
+    final updatedTask = task.copyWith(
+      alarmTime: alarmTime.toUtc(),
+      alarmTriggered: false,
+      userId: task.userId ?? userId,
+    );
+    await _repo.updateAdHocTask(updatedTask);
+    await loadAdHocTasks();
+  }
+  
+  /// Clear alarm for an adhoc task
+  Future<void> clearTaskAlarm(String taskId) async {
+    final userId = UserService().currentUserId;
+    
+    AdHocTask? task;
+    final inProgressIndex = _inProgressTasks.indexWhere((t) => t.id == taskId);
+    if (inProgressIndex != -1) {
+      task = _inProgressTasks[inProgressIndex];
+    } else {
+      final pendingIndex = _pendingTasks.indexWhere((t) => t.id == taskId);
+      if (pendingIndex != -1) {
+        task = _pendingTasks[pendingIndex];
+      }
+    }
+    
+    if (task == null) return;
+    
+    // Use explicit null assignment via a special method or by rebuilding
+    final updatedTask = AdHocTask(
+      id: task.id,
+      createdAt: task.createdAt,
+      updatedAt: DateTime.now().toUtc(),
+      deviceId: task.deviceId,
+      syncStatus: task.syncStatus,
+      userId: task.userId ?? userId,
+      title: task.title,
+      description: task.description,
+      executionState: task.executionState,
+      startedAt: task.startedAt,
+      completedAt: task.completedAt,
+      linkedActivityId: task.linkedActivityId,
+      isPaused: task.isPaused,
+      pausedAt: task.pausedAt,
+      pausedDurationSeconds: task.pausedDurationSeconds,
+      alarmTime: null, // Clear alarm
+      alarmTriggered: false,
+      sortOrder: task.sortOrder,
+    );
+    await _repo.updateAdHocTask(updatedTask);
+    await loadAdHocTasks();
+  }
+  
+  @override
+  void dispose() {
+    _taskTimer?.cancel();
+    super.dispose();
   }
   
   // ==================== USER FLOW TEMPLATES ====================

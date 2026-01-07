@@ -11,6 +11,8 @@ class UserFlowStep {
   final String activityName;
   final String? description;
   final int? estimatedMinutes;
+  final bool isOptional;      // Step can be skipped
+  final bool canSkipToEnd;    // Flow can end at this step
 
   UserFlowStep({
     String? id,
@@ -21,6 +23,8 @@ class UserFlowStep {
     required this.activityName,
     this.description,
     this.estimatedMinutes,
+    this.isOptional = false,
+    this.canSkipToEnd = false,
   }) : id = id ?? const Uuid().v4();
 
   String get fullPrompt => 'IF $ifCondition THEN $thenAction';
@@ -34,6 +38,8 @@ class UserFlowStep {
     String? activityName,
     String? description,
     int? estimatedMinutes,
+    bool? isOptional,
+    bool? canSkipToEnd,
   }) {
     return UserFlowStep(
       id: id ?? this.id,
@@ -44,6 +50,8 @@ class UserFlowStep {
       activityName: activityName ?? this.activityName,
       description: description ?? this.description,
       estimatedMinutes: estimatedMinutes ?? this.estimatedMinutes,
+      isOptional: isOptional ?? this.isOptional,
+      canSkipToEnd: canSkipToEnd ?? this.canSkipToEnd,
     );
   }
 
@@ -57,6 +65,8 @@ class UserFlowStep {
       'activity_name': activityName,
       'description': description,
       'estimated_minutes': estimatedMinutes,
+      'is_optional': isOptional,
+      'can_skip_to_end': canSkipToEnd,
     };
   }
 
@@ -70,6 +80,8 @@ class UserFlowStep {
       activityName: map['activity_name'] as String,
       description: map['description'] as String?,
       estimatedMinutes: map['estimated_minutes'] as int?,
+      isOptional: map['is_optional'] as bool? ?? false,
+      canSkipToEnd: map['can_skip_to_end'] as bool? ?? false,
     );
   }
 }
@@ -99,8 +111,8 @@ class UserFlowTemplate {
     DateTime? updatedAt,
   }) : 
     id = id ?? const Uuid().v4(),
-    createdAt = createdAt ?? DateTime.now(),
-    updatedAt = updatedAt ?? DateTime.now();
+    createdAt = createdAt ?? DateTime.now().toUtc(),
+    updatedAt = updatedAt ?? DateTime.now().toUtc();
 
   UserFlowTemplate copyWith({
     String? id,
@@ -122,7 +134,7 @@ class UserFlowTemplate {
       steps: steps ?? this.steps,
       isActive: isActive ?? this.isActive,
       createdAt: createdAt ?? this.createdAt,
-      updatedAt: updatedAt ?? DateTime.now(),
+      updatedAt: updatedAt ?? DateTime.now().toUtc(),
     );
   }
 

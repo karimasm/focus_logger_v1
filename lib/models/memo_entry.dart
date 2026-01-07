@@ -37,10 +37,10 @@ class MemoEntry implements SyncableModel {
     this.source = MemoSource.manual,
   }) : 
     id = id ?? UuidHelper.generate(),
-    createdAt = createdAt ?? DateTime.now(),
-    updatedAt = updatedAt ?? DateTime.now();
+    createdAt = createdAt ?? DateTime.now().toUtc(),
+    updatedAt = updatedAt ?? DateTime.now().toUtc();
 
-  Duration get timeSinceCreation => DateTime.now().difference(timestamp);
+  Duration get timeSinceCreation => DateTime.now().toUtc().difference(timestamp);
 
   MemoEntry copyWith({
     String? id,

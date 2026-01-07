@@ -14,7 +14,7 @@ class NobrainerTask {
     this.completedAt,
     DateTime? createdAt,
     this.sortOrder = 0,
-  }) : createdAt = createdAt ?? DateTime.now();
+  }) : createdAt = createdAt ?? DateTime.now().toUtc();
 
   NobrainerTask copyWith({
     int? id,

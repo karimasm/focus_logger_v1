@@ -134,10 +134,10 @@ class PredefinedSafetyWindows {
 
   static const sleep = SafetyWindow(
     id: 'window_sleep',
-    name: 'Sleep / Wind-down',
+    name: 'Sleep Time',
     startHour: 23,
     startMinute: 0,
-    endHour: 23,
+    endHour: 4,
     endMinute: 30,
     linkedFlowId: 'sleep_flow',
   );

@@ -11,6 +11,9 @@ import '../services/mascot_service.dart';
 import '../services/idle_detection_service.dart';
 import '../theme/theme.dart';
 import 'idle_reflection_screen.dart';
+import 'adhoc_reminder_screen.dart';
+import 'todo_reminder_screen.dart';
+import 'adhoc_flow_conflict_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -23,6 +26,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   late Timer _clockTimer;
   DateTime _currentTime = DateTime.now();
   bool _idlePopupShown = false;
+  bool _todoReminderShown = false;
 
   @override
   void initState() {
@@ -35,6 +39,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
       // Check idle state periodically (only when no activity running)
       _checkIdleState();
+      // Check to-do alarm
+      _checkTodoAlarm();
     });
     
     // Check idle on initial load
@@ -43,20 +49,174 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
   }
   
+  /// Check if a to-do alarm needs to trigger
+  void _checkTodoAlarm() {
+    if (_todoReminderShown) return;
+    
+    final flowProvider = context.read<FlowActionProvider>();
+    final guidedProvider = context.read<GuidedFlowProvider>();
+    
+    // Check pending tasks with alarm time reached
+    final now = DateTime.now();
+    AdHocTask? taskNeedingStart;
+    
+    for (final task in flowProvider.pendingTasks) {
+      if (task.alarmTime != null && 
+          !task.alarmTriggered && 
+          now.isAfter(task.alarmTime!)) {
+        taskNeedingStart = task;
+        break;
+      }
+    }
+    
+    // Also check in-progress tasks that need reminder
+    final taskNeedingReminder = flowProvider.adhocNeedingAlarmReminder;
+    
+    if (taskNeedingStart != null) {
+      // Check for conflict with Flow window
+      final activeWindow = guidedProvider.currentWindow;
+      if (activeWindow != null) {
+        // There's a conflict!
+        _showConflictScreen(taskNeedingStart, activeWindow, guidedProvider);
+      } else {
+        // No conflict, show enforced start screen
+        _showTodoStartScreen(taskNeedingStart);
+      }
+    } else if (taskNeedingReminder != null) {
+      // Task already running, just needs reminder
+      _showTodoReminderScreen(taskNeedingReminder);
+    }
+  }
+  
+  void _showTodoStartScreen(AdHocTask task) {
+    _todoReminderShown = true;
+    
+    final flowProvider = context.read<FlowActionProvider>();
+    final activityProvider = context.read<ActivityProvider>();
+    
+    // Mark alarm as triggered immediately to prevent duplicate popups
+    flowProvider.markAlarmTriggered(task.id);
+    
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (context) => TodoReminderScreen(
+          task: task,
+          onStartTask: () async {
+            // Start the task
+            await flowProvider.startTask(
+              task.id, 
+              currentRunningActivity: activityProvider.currentActivity,
+            );
+            _todoReminderShown = false;
+          },
+        ),
+      ),
+    );
+  }
+  
+  void _showConflictScreen(AdHocTask task, SafetyWindow activeWindow, GuidedFlowProvider guidedProvider) async {
+    _todoReminderShown = true;
+    
+    final flowProvider = context.read<FlowActionProvider>();
+    final activityProvider = context.read<ActivityProvider>();
+    
+    // Mark alarm as triggered immediately to prevent duplicate popups
+    flowProvider.markAlarmTriggered(task.id);
+    
+    // Find the flow template linked to this window
+    final flowTemplates = flowProvider.flowTemplates;
+    UserFlowTemplate? matchingTemplate;
+    for (final template in flowTemplates) {
+      if (template.linkedSafetyWindowId == activeWindow.id) {
+        matchingTemplate = template;
+        break;
+      }
+    }
+    
+    if (matchingTemplate == null) {
+      // No matching template found, just start the todo
+      _todoReminderShown = false;
+      _showTodoStartScreen(task);
+      return;
+    }
+    
+    final choice = await TodoFlowConflictScreen.show(
+      context,
+      todoTask: task,
+      flowTemplate: matchingTemplate,
+      safetyWindow: activeWindow,
+    );
+    
+    if (choice == ConflictChoice.todo) {
+      // User chose to-do, start the task
+      await flowProvider.startTask(
+        task.id,
+        currentRunningActivity: activityProvider.currentActivity,
+      );
+    } else if (choice == ConflictChoice.flow) {
+      // User chose flow, postpone the to-do alarm
+      // Reset alarm triggered so it can trigger again later
+      // Set new alarm time to after the flow window ends
+      final now = DateTime.now();
+      final newAlarmTime = DateTime(now.year, now.month, now.day, activeWindow.endHour, activeWindow.endMinute).add(const Duration(minutes: 5));
+      await flowProvider.setTaskAlarm(task.id, newAlarmTime);
+    }
+    
+    _todoReminderShown = false;
+  }
+  
+  void _showTodoReminderScreen(AdHocTask task) {
+    _todoReminderShown = true;
+    
+    final flowProvider = context.read<FlowActionProvider>();
+    
+    // Mark alarm as triggered immediately to prevent duplicate popups
+    flowProvider.markAlarmTriggered(task.id);
+    
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (context) => AdhocReminderScreen(
+          task: task,
+          onAcknowledge: () {
+            _todoReminderShown = false;
+          },
+          onStop: () async {
+            await flowProvider.stopTask(task.id);
+            _todoReminderShown = false;
+            
+            // Show energy check
+            if (mounted) {
+              await EnergyCheckDialog.show(
+                context,
+                taskId: task.id,
+                taskName: task.title,
+              );
+            }
+          },
+        ),
+      ),
+    );
+  }
+  
   void _checkIdleState() {
     if (_idlePopupShown) return;
     
     final provider = context.read<ActivityProvider>();
     final idleService = IdleDetectionService();
     
-    // Only show if: no running activity AND idle threshold reached
-    if (!provider.hasRunningActivity && idleService.isIdle) {
+    // Only show if: no running activity AND idle threshold reached AND not already prompted
+    if (!provider.hasRunningActivity && idleService.isIdle && !idleService.hasPromptedForCurrentIdle) {
       _showIdleReflectionPopup(idleService.idleDuration);
     }
   }
   
   void _showIdleReflectionPopup(Duration idleDuration) {
     _idlePopupShown = true;
+    
+    // Mark as prompted in the service to prevent duplicate prompts
+    IdleDetectionService().markAsPrompted();
     
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -77,8 +237,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       // Check idle when app resumes from background
-      _idlePopupShown = false;
-      _checkIdleState();
+      // Don't reset _idlePopupShown here - let IdleDetectionService manage it
+      if (!_idlePopupShown && IdleDetectionService().onAppResumed()) {
+        _showIdleReflectionPopup(IdleDetectionService().idleDuration);
+      }
     }
   }
 
@@ -90,13 +252,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
   
   /// Calculate live duration based on current time (updates every second)
+  /// Uses DateTime.now() directly to ensure fresh time on each rebuild
   String _getLiveFormattedDuration(Activity activity) {
     if (!activity.isRunning) {
       return activity.formattedDuration;
     }
     
-    // Calculate live duration using _currentTime which updates every second
-    final totalDuration = _currentTime.difference(activity.startTime);
+    // Use DateTime.now() directly for accurate live updates
+    // The ActivityProvider.notifyListeners() triggers rebuild every second
+    // FIX: Compare both in UTC to avoid timezone mismatch
+    final nowUtc = DateTime.now().toUtc();
+    final startTimeUtc = activity.startTime.toUtc();
+    final totalDuration = nowUtc.difference(startTimeUtc);
+    
     if (totalDuration.isNegative) {
       return '00:00:00';
     }
@@ -106,7 +274,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     
     // If currently paused, also subtract time since pause started
     if (activity.isPaused && activity.pausedAt != null) {
-      final currentPauseDuration = _currentTime.difference(activity.pausedAt!).inSeconds;
+      final pausedAtUtc = activity.pausedAt!.toUtc();
+      final currentPauseDuration = nowUtc.difference(pausedAtUtc).inSeconds;
       activeDurationSeconds -= currentPauseDuration;
     }
     
@@ -121,8 +290,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ActivityProvider>(
-      builder: (context, activityProvider, child) {
+    return Consumer2<ActivityProvider, FlowActionProvider>(
+      builder: (context, activityProvider, flowProvider, child) {
         return SingleChildScrollView(
           padding: const EdgeInsets.all(20),
           child: Column(
@@ -143,12 +312,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               _buildDate(),
               const SizedBox(height: 32),
               
-              // Current Activity Card
-              _buildCurrentActivityCard(activityProvider),
+              // Current Activity Card (handles both regular activity and adhoc)
+              _buildCurrentActivityCard(activityProvider, flowProvider),
               const SizedBox(height: 24),
               
               // Control Buttons
-              _buildControlButtons(activityProvider),
+              _buildControlButtons(activityProvider, flowProvider),
               const SizedBox(height: 24),
               
               // Guided Flow Section
@@ -171,6 +340,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         );
       },
     );
+  }
+  
+  String _formatAdhocDuration(Duration d) {
+    final hours = d.inHours.toString().padLeft(2, '0');
+    final minutes = (d.inMinutes % 60).toString().padLeft(2, '0');
+    final seconds = (d.inSeconds % 60).toString().padLeft(2, '0');
+    return '$hours:$minutes:$seconds';
+  }
+  
+  Future<void> _handleAdhocStop(FlowActionProvider flowProvider, String taskId) async {
+    final task = flowProvider.inProgressTasks.firstWhere((t) => t.id == taskId);
+    await flowProvider.stopTask(taskId);
+    
+    // Show energy check dialog
+    if (mounted) {
+      await EnergyCheckDialog.show(
+        context,
+        taskId: taskId,
+        taskName: task.title,
+      );
+    }
   }
   
   Widget _buildSyncStatusBar() {
@@ -341,10 +531,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildCurrentActivityCard(ActivityProvider provider) {
+  Widget _buildCurrentActivityCard(ActivityProvider provider, FlowActionProvider flowProvider) {
     final activity = provider.currentActivity;
     final hasActivity = provider.hasRunningActivity;
     final isPaused = provider.isPaused;
+    
+    // Check if there's an adhoc task in progress
+    final hasAdhoc = flowProvider.hasAdhocInProgress;
+    final adhocTask = hasAdhoc ? flowProvider.inProgressTasks.first : null;
+    final isAdhocPaused = adhocTask?.isPaused ?? false;
+    
+    // Determine display values - adhoc takes priority
+    final isRunning = hasAdhoc || hasActivity;
+    final showPaused = hasAdhoc ? isAdhocPaused : isPaused;
+    final displayName = hasAdhoc 
+        ? '[To-Do] ${adhocTask!.title}'
+        : (activity?.name ?? 'Start an activity');
+    final startTime = hasAdhoc ? adhocTask!.startedAt : activity?.startTime;
+    final duration = hasAdhoc 
+        ? (adhocTask!.executionDuration ?? Duration.zero)
+        : (activity != null ? _getLiveFormattedDuration(activity) : null);
 
     return Container(
       width: double.infinity,
@@ -362,22 +568,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 height: 12,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: hasActivity
-                      ? (isPaused ? AppColors.activityPaused : AppColors.activityRunning)
+                  color: isRunning
+                      ? (showPaused ? AppColors.activityPaused : AppColors.activityRunning)
                       : AppColors.textOnPanelMuted,
                 ),
               ),
               const SizedBox(width: 8),
               Text(
-                hasActivity
-                    ? (isPaused ? 'PAUSED' : 'RUNNING')
+                isRunning
+                    ? (showPaused ? 'PAUSED' : 'RUNNING')
                     : 'NO ACTIVITY',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
                   letterSpacing: 1.5,
-                  color: hasActivity
-                      ? (isPaused
+                  color: isRunning
+                      ? (showPaused
                           ? AppColors.activityPaused
                           : AppColors.activityRunning)
                       : AppColors.textOnPanelSecondary,
@@ -387,9 +593,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
           const SizedBox(height: 16),
           
-          // Activity name or placeholder
+          // Activity/Adhoc name
           Text(
-            activity?.name ?? 'Start an activity',
+            displayName,
             style: const TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.w600,
@@ -398,8 +604,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             textAlign: TextAlign.center,
           ),
           
-          // MASCOT BADGE: Show below activity name when running
-          if (hasActivity && activity != null)
+          // MASCOT BADGE: Show below activity name when running (only for regular activity)
+          if (!hasAdhoc && hasActivity && activity != null)
             Builder(builder: (context) {
               final mascotAsset = MascotService.getMascotAsset(activity);
               if (mascotAsset == null) return const SizedBox.shrink();
@@ -412,13 +618,33 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               );
             }),
           
-          // Duration if activity is running
-          if (hasActivity) ...[
+          // Alarm indicator for adhoc
+          if (hasAdhoc && adhocTask!.alarmTime != null && !adhocTask.alarmTriggered)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.alarm, size: 16, color: Colors.orange.shade600),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Reminder: ${DateFormat('HH:mm').format(adhocTask.alarmTime!.toLocal())}',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.orange.shade600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          
+          // Duration if running
+          if (isRunning) ...[
             const SizedBox(height: 12),
             FittedBox(
               fit: BoxFit.scaleDown,
               child: Text(
-                _getLiveFormattedDuration(activity!),
+                hasAdhoc ? _formatAdhocDuration(duration as Duration) : (duration as String),
                 style: const TextStyle(
                   fontSize: 48,
                   fontWeight: FontWeight.w300,
@@ -427,23 +653,34 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Started at ${DateFormat('HH:mm').format(activity.startTime)}',
-              style: const TextStyle(
-                fontSize: 14,
-                color: AppColors.textOnPanelSecondary,
+            if (startTime != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Started at ${DateFormat('HH:mm').format(startTime.toLocal())}',
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: AppColors.textOnPanelSecondary,
+                ),
               ),
-            ),
+            ],
           ],
         ],
       ),
     );
   }
 
-  Widget _buildControlButtons(ActivityProvider provider) {
+  Widget _buildControlButtons(ActivityProvider provider, FlowActionProvider flowProvider) {
     final hasActivity = provider.hasRunningActivity;
     final isPaused = provider.isPaused;
+    
+    // Check if there's an adhoc task in progress - takes priority
+    final hasAdhoc = flowProvider.hasAdhocInProgress;
+    final adhocTask = hasAdhoc ? flowProvider.inProgressTasks.first : null;
+    final isAdhocPaused = adhocTask?.isPaused ?? false;
+    
+    // Determine which controls to show
+    final isRunning = hasAdhoc || hasActivity;
+    final showPaused = hasAdhoc ? isAdhocPaused : isPaused;
 
     return Wrap(
       spacing: 12,
@@ -451,7 +688,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       alignment: WrapAlignment.center,
       children: [
         // Start / Stop button
-        if (!hasActivity)
+        if (!isRunning)
           _ActionButton(
             icon: Icons.play_arrow_rounded,
             label: 'Start Activity',
@@ -464,43 +701,65 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             label: 'Stop',
             isPrimary: false,
             isDestructive: true,
-            onPressed: () => _handleStopActivity(provider),
+            onPressed: hasAdhoc 
+                ? () => _handleAdhocStop(flowProvider, adhocTask!.id)
+                : () => _handleStopActivity(provider),
           ),
 
         // Pause / Resume button
-        if (hasActivity)
-          if (isPaused)
+        if (isRunning)
+          if (showPaused)
             _ActionButton(
               icon: Icons.play_arrow_rounded,
               label: 'Resume',
               isPrimary: true,
-              onPressed: () => provider.resumeActivity(),
+              onPressed: hasAdhoc 
+                  ? () => flowProvider.resumeTask(adhocTask!.id)
+                  : () => provider.resumeActivity(),
             )
           else
             _ActionButton(
               icon: Icons.pause_rounded,
               label: 'Pause',
               isPrimary: false,
-              onPressed: () => _showPauseReasonDialog(),
+              onPressed: hasAdhoc 
+                  ? () => flowProvider.pauseTask(adhocTask!.id)
+                  : () => _showPauseReasonDialog(),
             ),
 
-        // Add Memo button (only when activity is running)
-        if (hasActivity)
+        // Add Memo button (only when running and has linked activity)
+        if (isRunning && (hasAdhoc ? adhocTask!.linkedActivityId != null : hasActivity))
           _ActionButton(
             icon: Icons.note_add_rounded,
             label: 'Memo',
             isPrimary: false,
-            onPressed: () => _showMemoDialog(provider.currentActivity!),
+            onPressed: hasAdhoc 
+                ? () => _showAdhocMemoSheet(adhocTask!.linkedActivityId!)
+                : () => _showMemoDialog(provider.currentActivity!),
           ),
 
-        // Add Manual Log button
-        _ActionButton(
-          icon: Icons.add_rounded,
-          label: 'Add Log',
-          isPrimary: false,
-          onPressed: () => _showManualLogDialog(),
-        ),
+        // Add Manual Log button (only when no activity running)
+        if (!isRunning)
+          _ActionButton(
+            icon: Icons.add_rounded,
+            label: 'Add Log',
+            isPrimary: false,
+            onPressed: () => _showManualLogDialog(),
+          ),
       ],
+    );
+  }
+  
+  void _showAdhocMemoSheet(String activityId) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: _AdhocMemoSheet(activityId: activityId),
+      ),
     );
   }
 
@@ -815,22 +1074,37 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.5),
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+      child: Column(
         children: [
-          Icon(
-            Icons.notifications_active_outlined,
-            size: 16,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Text(
-              'You\'ll be prompted every 30 minutes if idle',
-              style: TextStyle(
-                fontSize: 13,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.notifications_active_outlined,
+                size: 16,
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  'You\'ll be prompted every 30 minutes if idle',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          // DEBUG: Test idle reflection screen
+          const SizedBox(height: 8),
+          TextButton.icon(
+            onPressed: () => _showIdleReflectionPopup(const Duration(minutes: 30)),
+            icon: const Icon(Icons.bug_report, size: 16),
+            label: const Text('Test Idle Prompt', style: TextStyle(fontSize: 12)),
+            style: TextButton.styleFrom(
+              foregroundColor: Theme.of(context).colorScheme.primary,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
             ),
           ),
         ],
@@ -1222,5 +1496,111 @@ class _UpcomingEventCard extends StatelessWidget {
       default:
         return const Color(0xFF2196F3);
     }
+  }
+}
+
+/// Memo sheet for adhoc tasks
+class _AdhocMemoSheet extends StatefulWidget {
+  final String activityId;
+
+  const _AdhocMemoSheet({
+    required this.activityId,
+  });
+
+  @override
+  State<_AdhocMemoSheet> createState() => _AdhocMemoSheetState();
+}
+
+class _AdhocMemoSheetState extends State<_AdhocMemoSheet> {
+  final _controller = TextEditingController();
+  final _focusNode = FocusNode();
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusNode.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveMemo() async {
+    if (_isSaving || _controller.text.trim().isEmpty) return;
+
+    setState(() => _isSaving = true);
+
+    try {
+      final memoProvider = Provider.of<MemoProvider>(context, listen: false);
+      await memoProvider.addMemo(
+        activityId: widget.activityId,
+        text: _controller.text.trim(),
+      );
+      if (mounted) Navigator.pop(context);
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 24,
+        right: 24,
+        top: 24,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.note_add_rounded),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'Add Memo',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          TextField(
+            controller: _controller,
+            focusNode: _focusNode,
+            maxLines: 4,
+            decoration: InputDecoration(
+              hintText: 'Write your memo...',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: _isSaving ? null : _saveMemo,
+              child: _isSaving
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Save Memo'),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

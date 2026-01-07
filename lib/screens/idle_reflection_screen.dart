@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:vibration/vibration.dart';
 import '../data/data.dart';
 import '../models/models.dart';
 import '../services/user_service.dart';
 import '../services/mascot_service.dart';
+import '../services/voice_input_service.dart';
 
 /// Full-screen blocking reflection popup
 /// 
@@ -28,10 +30,12 @@ class _IdleReflectionScreenState extends State<IdleReflectionScreen>
     with SingleTickerProviderStateMixin {
   final _textController = TextEditingController();
   final _focusNode = FocusNode();
+  final _voiceService = VoiceInputService.instance;
   final _audioPlayer = AudioPlayer();
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
   bool _isSaving = false;
+  bool _isListening = false;
 
   @override
   void initState() {
@@ -57,18 +61,17 @@ class _IdleReflectionScreenState extends State<IdleReflectionScreen>
   }
 
   Future<void> _alertUser() async {
+    // Play notification sound
+    try {
+      await _audioPlayer.play(AssetSource('sounds/notification.mp3'));
+    } catch (e) {
+      debugPrint('[IDLE] Sound failed: $e');
+    }
+    
     // Vibration: short-short-long pattern
     final hasVibrator = await Vibration.hasVibrator() ?? false;
     if (hasVibrator) {
       Vibration.vibrate(pattern: [0, 100, 100, 100, 100, 300]);
-    }
-    
-    // System beep
-    try {
-      await _audioPlayer.play(AssetSource('sounds/notification_beep.mp3'));
-    } catch (e) {
-      // Fallback: use system sound via audio player
-      debugPrint('[IDLE] Beep failed: $e');
     }
   }
 
@@ -78,7 +81,39 @@ class _IdleReflectionScreenState extends State<IdleReflectionScreen>
     _focusNode.dispose();
     _pulseController.dispose();
     _audioPlayer.dispose();
+    _voiceService.stopListening();
     super.dispose();
+  }
+
+  Future<void> _startListening() async {
+    final initialized = await _voiceService.initialize();
+    if (!initialized) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Voice input not available')),
+        );
+      }
+      return;
+    }
+
+    setState(() => _isListening = true);
+
+    await _voiceService.startListening(
+      onResult: (result) {
+        setState(() {
+          _textController.text = result;
+          _isListening = false;
+        });
+      },
+      onComplete: () {
+        setState(() => _isListening = false);
+      },
+    );
+  }
+
+  void _stopListening() {
+    _voiceService.stopListening();
+    setState(() => _isListening = false);
   }
 
   Future<void> _saveReflection() async {
@@ -98,17 +133,24 @@ class _IdleReflectionScreenState extends State<IdleReflectionScreen>
     setState(() => _isSaving = true);
 
     try {
-      final memo = MemoEntry(
-        activityId: 'idle-reflection',
-        timestamp: DateTime.now(),
-        text: '[Idle ${_formatDuration(widget.idleDuration)}] $text',
-        source: MemoSource.idleReflection,
-        userId: UserService().currentUserId,
-      );
-
-      await dataRepository.insertMemoEntry(memo);
+      final now = DateTime.now().toUtc();
+      final startTime = now.subtract(widget.idleDuration);
+      final userId = UserService().currentUserId;
       
-      debugPrint('[IDLE_REFLECTION] Saved: $text');
+      // Create activity for this idle period so it appears in timeline
+      final activity = Activity(
+        userId: userId,
+        name: text,
+        category: 'Idle',
+        startTime: startTime,
+        endTime: now,
+        isRunning: false,
+        source: ActivitySource.idleReflection,
+      );
+      
+      await dataRepository.insertActivityDirect(activity);
+      
+      debugPrint('[IDLE_REFLECTION] Saved activity: $text, duration: ${widget.idleDuration}');
       
       widget.onComplete();
     } catch (e) {
@@ -123,10 +165,6 @@ class _IdleReflectionScreenState extends State<IdleReflectionScreen>
         setState(() => _isSaving = false);
       }
     }
-  }
-
-  void _skip() {
-    widget.onComplete();
   }
 
   String _formatDuration(Duration d) {
@@ -229,8 +267,44 @@ class _IdleReflectionScreenState extends State<IdleReflectionScreen>
                       borderSide: BorderSide.none,
                     ),
                     contentPadding: const EdgeInsets.all(16),
+                    suffixIcon: IconButton(
+                      onPressed: _isListening ? _stopListening : _startListening,
+                      icon: Icon(
+                        _isListening ? Icons.stop_rounded : Icons.mic_rounded,
+                        color: _isListening
+                            ? Colors.red
+                            : theme.colorScheme.primary,
+                      ),
+                    ),
                   ),
                 ),
+                
+                // Voice listening indicator
+                if (_isListening)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.red,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Listening...',
+                          style: TextStyle(
+                            color: theme.colorScheme.onSurfaceVariant,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 
                 const SizedBox(height: 24),
                 
@@ -250,19 +324,6 @@ class _IdleReflectionScreenState extends State<IdleReflectionScreen>
                             'Simpan & Lanjutkan',
                             style: TextStyle(fontSize: 16),
                           ),
-                  ),
-                ),
-                
-                const SizedBox(height: 12),
-                
-                // Skip button
-                TextButton(
-                  onPressed: _skip,
-                  child: Text(
-                    'Skip',
-                    style: TextStyle(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
                   ),
                 ),
               ],

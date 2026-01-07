@@ -6,7 +6,8 @@ import 'package:intl/intl.dart';
 enum ActivitySource {
   manual('Manual'),
   auto('Auto'),
-  guided('Guided');
+  guided('Guided'),
+  idleReflection('Idle Reflection');
 
   final String displayName;
   const ActivitySource(this.displayName);
@@ -70,8 +71,8 @@ class Activity implements SyncableModel {
     this.chainContext,
   }) : 
     id = id ?? UuidHelper.generate(),
-    createdAt = createdAt ?? DateTime.now(),
-    updatedAt = updatedAt ?? DateTime.now();
+    createdAt = createdAt ?? DateTime.now().toUtc(),
+    updatedAt = updatedAt ?? DateTime.now().toUtc();
 
   /// Duration of the activity (excluding paused time)
   /// Protected: always returns >= 0 duration, never throws
@@ -146,7 +147,7 @@ class Activity implements SyncableModel {
     return Activity(
       id: id ?? this.id,
       createdAt: createdAt ?? this.createdAt,
-      updatedAt: updatedAt ?? DateTime.now(), // Always update timestamp on modification
+      updatedAt: updatedAt ?? DateTime.now().toUtc(), // Always update timestamp on modification (UTC)
       deviceId: deviceId ?? this.deviceId,
       userId: userId ?? this.userId,
       syncStatus: syncStatus ?? SyncStatus.pending, // Reset to pending on any change unless explicitly set

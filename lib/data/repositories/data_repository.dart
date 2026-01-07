@@ -16,6 +16,9 @@ abstract class DataRepository {
   /// Get activities for a specific date
   Future<List<Activity>> getActivitiesForDate(DateTime date);
   
+  /// Search activities by name/category across all dates
+  Future<List<Activity>> searchActivities(String query);
+  
   /// Get running activities older than a cutoff time (for sanitization)
   Future<List<Activity>> getRunningActivitiesOlderThan(DateTime cutoff);
   
@@ -52,6 +55,12 @@ abstract class DataRepository {
   
   /// Get all memos for current user (for Memo Tab)
   Future<List<MemoEntry>> getAllMemos();
+  
+  /// Get memos for a specific date
+  Future<List<MemoEntry>> getMemosForDate(DateTime date);
+  
+  /// Search memos by text across all dates
+  Future<List<MemoEntry>> searchMemos(String query);
   
   /// Insert a memo
   Future<void> insertMemoEntry(MemoEntry memo);
@@ -92,6 +101,23 @@ abstract class DataRepository {
   
   /// Get last completed time for a flow
   Future<DateTime?> getGuidedFlowLastCompleted(String flowId);
+
+  // ==================== GUIDED FLOWS (Database-driven) ====================
+  
+  /// Get all guided flows (system defaults + user custom)
+  Future<List<GuidedFlow>> getAllGuidedFlows();
+  
+  /// Get a guided flow by ID with its steps
+  Future<GuidedFlow?> getGuidedFlowById(String id);
+  
+  /// Get flow by safety window ID
+  Future<GuidedFlow?> getGuidedFlowByWindowId(String windowId);
+  
+  /// Insert or update a guided flow (user custom only)
+  Future<void> upsertGuidedFlow(GuidedFlow flow);
+  
+  /// Delete a guided flow (user custom only)
+  Future<void> deleteGuidedFlow(String id);
 
   // ==================== USER FLOW TEMPLATES ====================
   

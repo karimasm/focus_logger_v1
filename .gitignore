@@ -6,6 +6,7 @@ build/
 .idea/
 .vscode/
 *.log
+.flutter-plugins-dependencies
 
 # Flutter web chrome device cache
 .dart_tool/chrome-device/
@@ -49,6 +50,15 @@ coverage/
 .pub-cache/
 .pub/
 pubspec.lock
+
 # Local Netlify folder
 .netlify
 .env
+
+# DevTools
+devtools_options.yaml
+
+# AI/IDE context folders (local only)
+droid/
+.kiro/
+antigravity/

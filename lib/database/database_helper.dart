@@ -40,7 +40,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       dbPath,
-      version: 6, // V6: Added user_id for user-scoped sync
+      version: 7, // V7: Added pause/alarm fields to adhoc_tasks
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -76,6 +76,16 @@ class DatabaseHelper {
       await db.execute('ALTER TABLE adhoc_tasks ADD COLUMN user_id TEXT');
       debugPrint('[MIGRATION] V6 migration complete - user_id added');
     }
+    if (oldVersion < 7) {
+      // V7: Add pause/alarm fields to adhoc_tasks
+      debugPrint('[MIGRATION] Adding pause/alarm fields to adhoc_tasks...');
+      await db.execute('ALTER TABLE adhoc_tasks ADD COLUMN is_paused INTEGER DEFAULT 0');
+      await db.execute('ALTER TABLE adhoc_tasks ADD COLUMN paused_at TEXT');
+      await db.execute('ALTER TABLE adhoc_tasks ADD COLUMN paused_duration_seconds INTEGER DEFAULT 0');
+      await db.execute('ALTER TABLE adhoc_tasks ADD COLUMN alarm_time TEXT');
+      await db.execute('ALTER TABLE adhoc_tasks ADD COLUMN alarm_triggered INTEGER DEFAULT 0');
+      debugPrint('[MIGRATION] V7 migration complete - pause/alarm fields added');
+    }
   }
 
   Future<void> _createAdHocTasksTable(Database db) async {
@@ -86,12 +96,18 @@ class DatabaseHelper {
         updated_at TEXT NOT NULL,
         device_id TEXT,
         sync_status INTEGER DEFAULT 1,
+        user_id TEXT,
         title TEXT NOT NULL,
         description TEXT,
         execution_state INTEGER DEFAULT 0,
         started_at TEXT,
         completed_at TEXT,
         linked_activity_id TEXT,
+        is_paused INTEGER DEFAULT 0,
+        paused_at TEXT,
+        paused_duration_seconds INTEGER DEFAULT 0,
+        alarm_time TEXT,
+        alarm_triggered INTEGER DEFAULT 0,
         sort_order INTEGER DEFAULT 0,
         FOREIGN KEY (linked_activity_id) REFERENCES activities (id) ON DELETE SET NULL
       )

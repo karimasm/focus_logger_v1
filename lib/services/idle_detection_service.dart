@@ -32,6 +32,7 @@ class IdleDetectionService {
   
   // Getters
   DateTime? get lastActivityTime => _lastActivityTime;
+  bool get hasPromptedForCurrentIdle => _hasPromptedForCurrentIdle;
   
   /// Check if user has been idle for more than threshold
   bool get isIdle {
@@ -49,6 +50,13 @@ class IdleDetectionService {
   /// Initialize the service
   Future<void> init() async {
     await _loadLastActivityTime();
+    
+    // If never set before, initialize to now (first app launch)
+    if (_lastActivityTime == null) {
+      _lastActivityTime = DateTime.now();
+      await _saveLastActivityTime();
+    }
+    
     _startIdleCheckTimer();
   }
   
@@ -61,7 +69,7 @@ class IdleDetectionService {
         _lastActivityTime = DateTime.tryParse(lastTimeStr);
       }
     } catch (e) {
-      debugPrint('Error loading last activity time: $e');
+      debugPrint('[IDLE] Error loading last activity time: $e');
     }
   }
   
@@ -105,6 +113,11 @@ class IdleDetectionService {
     _lastActivityTime = DateTime.now();
     _hasPromptedForCurrentIdle = false;
     _saveLastActivityTime();
+  }
+  
+  /// Mark that we've prompted for current idle period (prevents duplicate prompts)
+  void markAsPrompted() {
+    _hasPromptedForCurrentIdle = true;
   }
   
   /// Called when app resumes from background

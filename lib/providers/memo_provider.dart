@@ -68,7 +68,7 @@ class MemoProvider extends ChangeNotifier {
   }) async {
     final memo = MemoEntry(
       activityId: activityId,
-      timestamp: DateTime.now(),
+      timestamp: DateTime.now().toUtc(),  // FIX: Use UTC
       text: text,
       source: source,
       userId: UserService().currentUserId,

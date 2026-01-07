@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'services/sync_service.dart';
 import 'services/flow_seeder_service.dart';
+import 'services/idle_detection_service.dart';
 import 'app.dart';
 
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -29,13 +30,16 @@ void main() async {
       // Seed default flows to database (runs once on first install)
       await FlowSeederService.seedDefaultFlows();
       
-      debugPrint('✅ Supabase initialized successfully');
+      debugPrint('Supabase initialized successfully');
     } else {
-      debugPrint('⚠️ Supabase credentials not set. Sync will not work.');
+      debugPrint('Supabase credentials not set. Sync will not work.');
     }
   } catch (e) {
-    debugPrint('❌ Failed to initialize Supabase: $e');
+    debugPrint('Failed to initialize Supabase: $e');
   }
+
+  // Initialize idle detection service
+  await IdleDetectionService().init();
 
   runApp(const FocusLoggerApp());
 }

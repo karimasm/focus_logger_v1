@@ -72,7 +72,8 @@ class CloudDataRepository implements DataRepository {
     if (userId == null) return <Activity>[];
     
     return _safeCall(() async {
-      final startOfDay = DateTime(date.year, date.month, date.day);
+      // FIX: Use UTC for date range to match stored UTC timestamps
+      final startOfDay = DateTime.utc(date.year, date.month, date.day);
       final endOfDay = startOfDay.add(const Duration(days: 1));
       
       // USER-SCOPED: Filter by user_id
@@ -83,6 +84,26 @@ class CloudDataRepository implements DataRepository {
           .gte('start_time', startOfDay.toIso8601String())
           .lt('start_time', endOfDay.toIso8601String())
           .order('start_time');
+      
+      return response.map((m) => Activity.fromSupabaseMap(m)).toList();
+    }, <Activity>[]);
+  }
+  
+  @override
+  Future<List<Activity>> searchActivities(String query) async {
+    final userId = UserService().currentUserId;
+    if (userId == null) return <Activity>[];
+    if (query.trim().isEmpty) return <Activity>[];
+    
+    return _safeCall(() async {
+      final searchPattern = '%${query.toLowerCase()}%';
+      final response = await _supabase
+          .from('activities')
+          .select()
+          .eq('user_id', userId)
+          .or('name.ilike.$searchPattern,category.ilike.$searchPattern')
+          .order('start_time', ascending: false)
+          .limit(100);
       
       return response.map((m) => Activity.fromSupabaseMap(m)).toList();
     }, <Activity>[]);
@@ -214,6 +235,47 @@ class CloudDataRepository implements DataRepository {
   }
   
   @override
+  Future<List<MemoEntry>> getMemosForDate(DateTime date) async {
+    final userId = UserService().currentUserId;
+    if (userId == null) return <MemoEntry>[];
+    
+    return _safeCall(() async {
+      final startOfDay = DateTime.utc(date.year, date.month, date.day);
+      final endOfDay = startOfDay.add(const Duration(days: 1));
+      
+      final response = await _supabase
+          .from('memo_entries')
+          .select()
+          .eq('user_id', userId)
+          .gte('timestamp', startOfDay.toIso8601String())
+          .lt('timestamp', endOfDay.toIso8601String())
+          .order('timestamp', ascending: false);
+      
+      return response.map((m) => MemoEntry.fromSupabaseMap(m)).toList();
+    }, <MemoEntry>[]);
+  }
+  
+  @override
+  Future<List<MemoEntry>> searchMemos(String query) async {
+    final userId = UserService().currentUserId;
+    if (userId == null) return <MemoEntry>[];
+    if (query.trim().isEmpty) return <MemoEntry>[];
+    
+    return _safeCall(() async {
+      final searchPattern = '%${query.toLowerCase()}%';
+      final response = await _supabase
+          .from('memo_entries')
+          .select()
+          .eq('user_id', userId)
+          .ilike('text', searchPattern)
+          .order('timestamp', ascending: false)
+          .limit(100);
+      
+      return response.map((m) => MemoEntry.fromSupabaseMap(m)).toList();
+    }, <MemoEntry>[]);
+  }
+  
+  @override
   Future<void> insertMemoEntry(MemoEntry memo) async {
     await _safeCall(() async {
       await _supabase.from('memo_entries').upsert(memo.toSupabaseMap());
@@ -307,6 +369,111 @@ class CloudDataRepository implements DataRepository {
   
   @override
   Future<DateTime?> getGuidedFlowLastCompleted(String flowId) async => null;
+
+  // ==================== GUIDED FLOWS (Database-driven) ====================
+  
+  @override
+  Future<List<GuidedFlow>> getAllGuidedFlows() async {
+    return _safeCall(() async {
+      // Get all flows (system + user custom)
+      final flowsResponse = await _supabase
+          .from('guided_flows')
+          .select()
+          .eq('is_active', true)
+          .order('name');
+      
+      final flows = <GuidedFlow>[];
+      for (final flowMap in flowsResponse) {
+        final stepsResponse = await _supabase
+            .from('guided_flow_steps')
+            .select()
+            .eq('flow_id', flowMap['id'])
+            .order('step_order');
+        
+        final steps = stepsResponse.map((s) => GuidedStep.fromSupabase(s)).toList();
+        flows.add(GuidedFlow.fromSupabase(flowMap, steps));
+      }
+      
+      return flows;
+    }, <GuidedFlow>[]);
+  }
+  
+  @override
+  Future<GuidedFlow?> getGuidedFlowById(String id) async {
+    return _safeCall(() async {
+      final flowResponse = await _supabase
+          .from('guided_flows')
+          .select()
+          .eq('id', id)
+          .maybeSingle();
+      
+      if (flowResponse == null) return null;
+      
+      final stepsResponse = await _supabase
+          .from('guided_flow_steps')
+          .select()
+          .eq('flow_id', id)
+          .order('step_order');
+      
+      final steps = stepsResponse.map((s) => GuidedStep.fromSupabase(s)).toList();
+      return GuidedFlow.fromSupabase(flowResponse, steps);
+    }, null);
+  }
+  
+  @override
+  Future<GuidedFlow?> getGuidedFlowByWindowId(String windowId) async {
+    return _safeCall(() async {
+      final flowResponse = await _supabase
+          .from('guided_flows')
+          .select()
+          .eq('safety_window_id', windowId)
+          .eq('is_active', true)
+          .maybeSingle();
+      
+      if (flowResponse == null) return null;
+      
+      final stepsResponse = await _supabase
+          .from('guided_flow_steps')
+          .select()
+          .eq('flow_id', flowResponse['id'])
+          .order('step_order');
+      
+      final steps = stepsResponse.map((s) => GuidedStep.fromSupabase(s)).toList();
+      return GuidedFlow.fromSupabase(flowResponse, steps);
+    }, null);
+  }
+  
+  @override
+  Future<void> upsertGuidedFlow(GuidedFlow flow) async {
+    final userId = UserService().currentUserId;
+    if (userId == null) return;
+    
+    try {
+      // Upsert the flow
+      await _supabase.from('guided_flows').upsert(flow.toSupabaseMap(userId: userId));
+      
+      // Delete existing steps and re-insert
+      await _supabase.from('guided_flow_steps').delete().eq('flow_id', flow.id);
+      
+      for (int i = 0; i < flow.steps.length; i++) {
+        await _supabase.from('guided_flow_steps').insert(
+          flow.steps[i].toSupabaseMap(flow.id, i + 1),
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ upsertGuidedFlow failed: $e');
+    }
+  }
+  
+  @override
+  Future<void> deleteGuidedFlow(String id) async {
+    try {
+      // Steps will be cascade deleted
+      await _supabase.from('guided_flows').delete().eq('id', id);
+    } catch (e) {
+      debugPrint('❌ deleteGuidedFlow failed: $e');
+    }
+  }
 
   // ==================== USER FLOW TEMPLATES ====================
   // Note: Flow templates are seeded locally, not synced

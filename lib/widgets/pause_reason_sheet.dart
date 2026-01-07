@@ -200,12 +200,14 @@ class _ReasonOption extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
         color: isSelected
-            ? Theme.of(context).colorScheme.primaryContainer
-            : Theme.of(context).colorScheme.surfaceContainerHighest,
+            ? colorScheme.primaryContainer
+            : colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(12),
         child: InkWell(
           onTap: onTap,
@@ -217,7 +219,7 @@ class _ReasonOption extends StatelessWidget {
                 Icon(
                   _getIcon(),
                   color: isSelected
-                      ? Theme.of(context).colorScheme.onPrimaryContainer
+                      ? colorScheme.onPrimaryContainer
                       : _getColor(),
                 ),
                 const SizedBox(width: 16),
@@ -227,16 +229,17 @@ class _ReasonOption extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: isSelected ? FontWeight.w600 : null,
+                      // FIX: Use proper text color for dark backgrounds
                       color: isSelected
-                          ? Theme.of(context).colorScheme.onPrimaryContainer
-                          : null,
+                          ? colorScheme.onPrimaryContainer
+                          : colorScheme.onSurface,
                     ),
                   ),
                 ),
                 if (isSelected)
                   Icon(
                     Icons.check_circle_rounded,
-                    color: Theme.of(context).colorScheme.primary,
+                    color: colorScheme.primary,
                   ),
               ],
             ),

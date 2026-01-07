@@ -54,6 +54,13 @@ class LocalDataRepository implements DataRepository {
       _db.getActivitiesForDate(date);
   
   @override
+  Future<List<Activity>> searchActivities(String query) async {
+    // For local, search in database (simplified - just return empty for now)
+    // Full implementation would search SQLite with LIKE query
+    return <Activity>[];
+  }
+  
+  @override
   Future<List<Activity>> getRunningActivitiesOlderThan(DateTime cutoff) =>
       _db.getRunningActivitiesOlderThan(cutoff);
   
@@ -122,6 +129,18 @@ class LocalDataRepository implements DataRepository {
     // Not used - CloudDataRepository is primary
     return <MemoEntry>[];
   }
+  
+  @override
+  Future<List<MemoEntry>> getMemosForDate(DateTime date) async {
+    // Not used - CloudDataRepository is primary
+    return <MemoEntry>[];
+  }
+  
+  @override
+  Future<List<MemoEntry>> searchMemos(String query) async {
+    // Not used - CloudDataRepository is primary
+    return <MemoEntry>[];
+  }
 
   // ==================== GUIDED FLOW LOGS ====================
   
@@ -167,6 +186,46 @@ class LocalDataRepository implements DataRepository {
   @override
   Future<DateTime?> getGuidedFlowLastCompleted(String flowId) =>
       _db.getGuidedFlowLastCompleted(flowId);
+
+  // ==================== GUIDED FLOWS (Database-driven) ====================
+  // For local repository, we still use hardcoded flows for now
+  // Full database implementation would require SQLite tables
+  
+  @override
+  Future<List<GuidedFlow>> getAllGuidedFlows() async {
+    // Return predefined flows for local/offline mode
+    return PredefinedFlows.all;
+  }
+  
+  @override
+  Future<GuidedFlow?> getGuidedFlowById(String id) async {
+    try {
+      return PredefinedFlows.all.firstWhere((f) => f.id == id);
+    } catch (_) {
+      return null;
+    }
+  }
+  
+  @override
+  Future<GuidedFlow?> getGuidedFlowByWindowId(String windowId) async {
+    try {
+      return PredefinedFlows.all.firstWhere((f) => f.safetyWindowId == windowId);
+    } catch (_) {
+      return null;
+    }
+  }
+  
+  @override
+  Future<void> upsertGuidedFlow(GuidedFlow flow) async {
+    // Not implemented for local - would need SQLite tables
+    debugPrint('⚠️ upsertGuidedFlow not implemented for local repository');
+  }
+  
+  @override
+  Future<void> deleteGuidedFlow(String id) async {
+    // Not implemented for local
+    debugPrint('⚠️ deleteGuidedFlow not implemented for local repository');
+  }
 
   // ==================== USER FLOW TEMPLATES ====================
   

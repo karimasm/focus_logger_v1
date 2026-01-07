@@ -60,9 +60,9 @@ class EnergyCheck implements SyncableModel {
     DateTime? recordedAt,
     this.note,
   }) : id = id ?? const Uuid().v4(),
-       createdAt = createdAt ?? DateTime.now(),
-       updatedAt = updatedAt ?? DateTime.now(),
-       recordedAt = recordedAt ?? DateTime.now();
+       createdAt = createdAt ?? DateTime.now().toUtc(),
+       updatedAt = updatedAt ?? DateTime.now().toUtc(),
+       recordedAt = recordedAt ?? DateTime.now().toUtc();
   
   @override
   Map<String, dynamic> toMap() {
@@ -125,7 +125,7 @@ class EnergyCheck implements SyncableModel {
     return EnergyCheck(
       id: id ?? this.id,
       createdAt: createdAt ?? this.createdAt,
-      updatedAt: updatedAt ?? DateTime.now(),
+      updatedAt: updatedAt ?? DateTime.now().toUtc(),
       deviceId: deviceId ?? this.deviceId,
       syncStatus: syncStatus ?? SyncStatus.pending,
       activityId: activityId ?? this.activityId,

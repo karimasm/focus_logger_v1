@@ -11,6 +11,8 @@ class GuidedStep {
   final List<String> suggestions; // Optional action suggestions
   final Duration? estimatedDuration; // Optional expected duration
   final String? nextStepId; // For flow chaining
+  final bool isOptional;    // Step can be skipped
+  final bool canSkipToEnd;  // Flow can end at this step
 
   const GuidedStep({
     required this.id,
@@ -21,6 +23,8 @@ class GuidedStep {
     this.suggestions = const [],
     this.estimatedDuration,
     this.nextStepId,
+    this.isOptional = false,
+    this.canSkipToEnd = false,
   });
 
   String get fullPrompt => 'IF $ifCondition THEN $thenAction';
@@ -35,6 +39,8 @@ class GuidedStep {
       'suggestions': suggestions.join('|'),
       'estimatedDuration': estimatedDuration?.inSeconds,
       'nextStepId': nextStepId,
+      'isOptional': isOptional,
+      'canSkipToEnd': canSkipToEnd,
     };
   }
 
@@ -50,7 +56,45 @@ class GuidedStep {
           ? Duration(seconds: map['estimatedDuration'] as int)
           : null,
       nextStepId: map['nextStepId'] as String?,
+      isOptional: map['isOptional'] as bool? ?? false,
+      canSkipToEnd: map['canSkipToEnd'] as bool? ?? false,
     );
+  }
+
+  /// Create from Supabase database format
+  factory GuidedStep.fromSupabase(Map<String, dynamic> map) {
+    return GuidedStep(
+      id: map['id'] as String,
+      ifCondition: map['if_condition'] as String,
+      thenAction: map['then_action'] as String,
+      activityName: map['activity_name'] as String,
+      description: map['description'] as String?,
+      suggestions: (map['suggestions'] as String?)?.split('|') ?? [],
+      estimatedDuration: map['estimated_seconds'] != null
+          ? Duration(seconds: map['estimated_seconds'] as int)
+          : null,
+      nextStepId: map['next_step_id'] as String?,
+      isOptional: map['is_optional'] as bool? ?? false,
+      canSkipToEnd: map['can_skip_to_end'] as bool? ?? false,
+    );
+  }
+
+  /// Convert to Supabase format
+  Map<String, dynamic> toSupabaseMap(String flowId, int stepOrder) {
+    return {
+      'id': id,
+      'flow_id': flowId,
+      'step_order': stepOrder,
+      'if_condition': ifCondition,
+      'then_action': thenAction,
+      'activity_name': activityName,
+      'description': description,
+      'suggestions': suggestions.isNotEmpty ? suggestions.join('|') : null,
+      'estimated_seconds': estimatedDuration?.inSeconds,
+      'next_step_id': nextStepId,
+      'is_optional': isOptional,
+      'can_skip_to_end': canSkipToEnd,
+    };
   }
 }
 
@@ -150,6 +194,35 @@ class GuidedFlow {
           : null,
     );
   }
+
+  /// Create from Supabase database format
+  factory GuidedFlow.fromSupabase(Map<String, dynamic> map, List<GuidedStep> steps) {
+    return GuidedFlow(
+      id: map['id'] as String,
+      name: map['name'] as String,
+      safetyWindowId: map['safety_window_id'] as String? ?? '',
+      initialPrompt: map['initial_prompt'] as String? ?? '',
+      steps: steps,
+      flowType: FlowType.fromString(map['flow_type'] as String? ?? 'routine'),
+      isActive: map['is_active'] as bool? ?? true,
+      lastTriggered: null,
+      lastCompleted: null,
+    );
+  }
+
+  /// Convert to Supabase format for insert/update
+  Map<String, dynamic> toSupabaseMap({String? userId}) {
+    return {
+      'id': id,
+      'user_id': userId,
+      'name': name,
+      'safety_window_id': safetyWindowId.isEmpty ? null : safetyWindowId,
+      'initial_prompt': initialPrompt,
+      'flow_type': flowType.name,
+      'is_active': isActive,
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    };
+  }
 }
 
 /// Represents the current state of an active guided flow execution
@@ -203,8 +276,8 @@ class GuidedFlowLog implements SyncableModel {
     this.wasSkippedHaid = false,
   }) : 
     id = id ?? UuidHelper.generate(),
-    createdAt = createdAt ?? DateTime.now(),
-    updatedAt = updatedAt ?? DateTime.now();
+    createdAt = createdAt ?? DateTime.now().toUtc(),
+    updatedAt = updatedAt ?? DateTime.now().toUtc();
 
   bool get isCompleted => stepsCompleted >= totalSteps && !wasAbandoned && !wasMissed && !wasSkippedHaid;
   
@@ -212,7 +285,7 @@ class GuidedFlowLog implements SyncableModel {
   bool get isSkippedDueToHaid => wasSkippedHaid;
 
   Duration get duration {
-    final end = completedAt ?? DateTime.now();
+    final end = completedAt ?? DateTime.now().toUtc();
     return end.difference(triggeredAt);
   }
 
@@ -533,12 +606,23 @@ class PredefinedFlows {
         estimatedDuration: Duration(minutes: 10),
       ),
       const GuidedStep(
-        id: 'sleep_sleep',
+        id: 'sleep_actual',
         ifCondition: 'you are calm',
         thenAction: 'go to sleep',
-        activityName: 'Sleep (guided)',
-        description: 'Time to rest',
-        estimatedDuration: Duration(minutes: 5),
+        activityName: 'Sleeping',
+        description: 'Rest until 04:30 or when you wake up',
+        estimatedDuration: Duration(hours: 5),
+        canSkipToEnd: true,
+      ),
+      const GuidedStep(
+        id: 'sleep_tahajud',
+        ifCondition: 'you woke up before Subuh',
+        thenAction: 'tahajud prayer',
+        activityName: 'Tahajud',
+        description: 'Night prayer if you wake up before Subuh. Skip if you want to continue sleeping.',
+        suggestions: ['Wudhu', '2-8 rakaat', 'Doa'],
+        estimatedDuration: Duration(minutes: 15),
+        isOptional: true,
       ),
     ],
   );

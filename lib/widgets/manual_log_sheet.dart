@@ -108,12 +108,12 @@ class _ManualLogSheetState extends State<ManualLogSheet> {
     final provider = context.read<ActivityProvider>();
     await provider.startActivity(name);
     
-    // Manually update the activity to set custom times
+    // Manually update the activity to set custom times (convert to UTC for storage)
     if (provider.currentActivity != null) {
       await provider.updateActivityDetails(
         provider.currentActivity!.id,
-        startTime: _startTime,
-        endTime: _endTime,
+        startTime: _startTime.toUtc(),  // FIX: Convert to UTC
+        endTime: _endTime.toUtc(),      // FIX: Convert to UTC
       );
       await provider.stopActivity();
     }

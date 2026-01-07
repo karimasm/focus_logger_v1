@@ -4,6 +4,7 @@ import '../data/data.dart';
 import '../models/models.dart';
 import '../services/sync_service.dart';
 import '../services/user_service.dart';
+import '../services/idle_detection_service.dart';
 
 /// Callback type for auto-log prompt
 typedef AutoLogPromptCallback = Future<String?> Function(DateTime slotStart, DateTime slotEnd);
@@ -174,8 +175,9 @@ class ActivityProvider extends ChangeNotifier {
   /// Handle the 30-minute auto-log interval
   /// NEW BEHAVIOR: Prompt user instead of silently creating entries
   Future<void> _handleAutoLogInterval() async {
-    final now = DateTime.now();
-    final slotEnd = DateTime(now.year, now.month, now.day, now.hour, (now.minute ~/ 30) * 30);
+    // FIX: Use UTC for database storage
+    final now = DateTime.now().toUtc();
+    final slotEnd = DateTime.utc(now.year, now.month, now.day, now.hour, (now.minute ~/ 30) * 30);
     final slotStart = slotEnd.subtract(const Duration(minutes: 30));
     
     // If there's a running activity, just create the time slot with that activity
@@ -319,10 +321,11 @@ class ActivityProvider extends ChangeNotifier {
     // USER-SCOPED: Get current user ID
     final userId = UserService().currentUserId;
     
+    // FIX: Store startTime in UTC to avoid timezone mismatch
     final activity = Activity(
       name: name,
       category: category,
-      startTime: DateTime.now(),
+      startTime: DateTime.now().toUtc(),
       isRunning: true,
       userId: userId, // USER-SCOPED: Set owner
       source: source,
@@ -335,6 +338,9 @@ class ActivityProvider extends ChangeNotifier {
     await loadTodayData();
     notifyListeners();
     
+    // Notify idle detection service
+    IdleDetectionService().onActivityStarted();
+    
     // Trigger sync for activity start (backup sync)
     await _syncService.triggerSync(SyncEvent.activityStarted);
   }
@@ -344,23 +350,26 @@ class ActivityProvider extends ChangeNotifier {
   Future<void> stopActivity() async {
     if (_currentActivity == null) return;
 
+    // FIX: Use UTC for consistent timezone handling
+    final nowUtc = DateTime.now().toUtc();
+    
     // If paused, add remaining pause duration
     int totalPausedSeconds = _currentActivity!.pausedDurationSeconds;
     if (_currentActivity!.isPaused && _currentActivity!.pausedAt != null) {
-      totalPausedSeconds += DateTime.now().difference(_currentActivity!.pausedAt!).inSeconds;
+      totalPausedSeconds += nowUtc.difference(_currentActivity!.pausedAt!.toUtc()).inSeconds;
       
       // Complete the active pause log
       final activePause = await _repo.getActivePauseLog(_currentActivity!.id);
       if (activePause != null) {
         await _repo.updatePauseLogDirect(activePause.copyWith(
-          resumeTime: DateTime.now(),
+          resumeTime: nowUtc,
           userId: UserService().currentUserId,
         ));
       }
     }
 
     final updated = _currentActivity!.copyWith(
-      endTime: DateTime.now(),
+      endTime: nowUtc,
       isRunning: false,
       isPaused: false,
       pausedDurationSeconds: totalPausedSeconds,
@@ -373,6 +382,9 @@ class ActivityProvider extends ChangeNotifier {
     await loadTodayData();
     notifyListeners();
     
+    // Notify idle detection service
+    IdleDetectionService().onActivityStopped();
+    
     // Trigger sync for activity done (backup sync)
     await _syncService.triggerSync(SyncEvent.activityDone);
   }
@@ -384,9 +396,9 @@ class ActivityProvider extends ChangeNotifier {
       return;
     }
 
-    final now = DateTime.now();
+    // FIX: Use UTC for consistent timezone handling
+    final now = DateTime.now().toUtc();
     
-    // Create pause log with direct write
     // Create pause log with direct write
     final pauseLog = PauseLog(
       activityId: _currentActivity!.id,
@@ -416,11 +428,12 @@ class ActivityProvider extends ChangeNotifier {
       return;
     }
 
-    final now = DateTime.now();
+    // FIX: Use UTC for consistent timezone handling
+    final now = DateTime.now().toUtc();
     
-    // Calculate pause duration
+    // Calculate pause duration (both times should be in UTC)
     final pauseDuration = _currentActivity!.pausedAt != null
-        ? now.difference(_currentActivity!.pausedAt!).inSeconds
+        ? now.difference(_currentActivity!.pausedAt!.toUtc()).inSeconds
         : 0;
 
     // Complete the active pause log with direct write
